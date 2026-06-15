@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Crazyflie Web-Simulator</title>
+<style>
+  :root{
+    --bg:#0f1218; --card:#1a2035; --edge:#2d3a55; --edge2:#3d4a65;
+    --blue:#4fc3f7; --grn:#69f0ae; --org:#ffd740; --prp:#e040fb;
+    --dim:#7986a0; --wht:#fff; --red:#ff5252;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg); color:var(--wht);
+    font-family:"Cascadia Code",Consolas,"Courier New",monospace;
+    font-size:13px; line-height:1.45;
+  }
+  .wrap{display:flex; flex-direction:column; min-height:100%; padding:12px; gap:12px}
+  h1{font-size:15px; color:var(--blue); margin:0; font-weight:700; letter-spacing:.5px}
+  h1 small{color:var(--dim); font-weight:400; font-size:11px}
+  .main{display:flex; gap:12px; flex-wrap:wrap; align-items:stretch}
+  .col{flex:1 1 420px; min-width:320px; display:flex; flex-direction:column; gap:8px}
+  .panel{background:var(--card); border:1px solid var(--edge); border-radius:8px; padding:10px}
+  .panel > .ttl{color:var(--blue); font-size:11px; letter-spacing:1px; margin-bottom:6px}
+  textarea{
+    width:100%; height:340px; resize:vertical;
+    background:#0d1424; color:#e6edf6; border:1px solid var(--edge2); border-radius:6px;
+    font-family:inherit; font-size:12.5px; padding:10px; tab-size:4; white-space:pre;
+  }
+  .btnrow{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px}
+  button{
+    background:#1e2a42; color:var(--wht); border:1px solid var(--edge2);
+    border-radius:6px; padding:7px 14px; font-family:inherit; font-size:12.5px; cursor:pointer;
+  }
+  button:hover:not(:disabled){border-color:var(--blue); color:var(--blue)}
+  button:disabled{opacity:.45; cursor:default}
+  button.primary{background:var(--blue); color:#06121c; border-color:var(--blue); font-weight:700}
+  button.primary:hover:not(:disabled){filter:brightness(1.1); color:#06121c}
+  #status{color:var(--dim); font-size:11.5px}
+  #status.err{color:var(--red)}
+  #status.ok{color:var(--grn)}
+  .err-box{
+    display:none; margin-top:8px; background:#2a1115; border:1px solid #5a2a2a; border-radius:6px;
+    padding:8px 10px; color:#ffb3b3; font-size:12px; white-space:pre-wrap; max-height:160px; overflow:auto;
+  }
+  #scene{width:100%; height:460px; background:#0d1424; border:1px solid var(--edge2); border-radius:6px; overflow:hidden; position:relative; cursor:grab}
+  #scene:active{cursor:grabbing}
+  #scene canvas{display:block}
+  .readouts{display:grid; grid-template-columns:repeat(4,1fr); gap:6px 10px; margin-top:8px}
+  .ro{background:#0d1424; border:1px solid var(--edge); border-radius:6px; padding:6px 8px}
+  .ro .k{color:var(--dim); font-size:10px; letter-spacing:.5px}
+  .ro .v{font-size:15px; font-weight:700; color:var(--grn)}
+  .ro .v small{font-size:10px; color:var(--dim); font-weight:400}
+  #speedChart{width:100%; height:120px; background:#0d1424; border:1px solid var(--edge2); border-radius:6px; display:block; margin-top:8px}
+  .controls{display:flex; gap:10px; align-items:center; margin-top:10px; flex-wrap:wrap}
+  .controls input[type=range]{flex:1 1 160px}
+  .controls select{background:#0d1424; color:var(--wht); border:1px solid var(--edge2); border-radius:6px; padding:4px 6px; font-family:inherit}
+  .legend{color:var(--dim); font-size:10.5px; margin-top:6px}
+  .legend b{color:var(--blue)}
+  .foot{color:var(--dim); font-size:11px; border-top:1px solid var(--edge); padding-top:8px}
+  .foot code{background:#0d1424; border:1px solid var(--edge); border-radius:4px; padding:1px 5px; color:#cfe3ff}
+  details summary{cursor:pointer; color:var(--blue)}
+  .hint{color:var(--dim)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>CRAZYFLIE WEB-SIMULATOR <small>— Flugcode eingeben, Bewegung ansehen (kinematisches Modell)</small></h1>
+
+  <div class="main">
+    <!-- ── Editor ─────────────────────────────────────────── -->
+    <div class="col">
+      <div class="panel">
+        <div class="ttl">FLUGCODE  (Python)</div>
+        <textarea id="code" spellcheck="false"># Ring-Parcours: durch die Ringe fliegen. Parcours HIER aenderbar (kein HTML noetig!):
+#   RINGS:     x=vorne, y=links, z=Hoehe(Mittelpunkt), r=Radius  -> durchfliegen
+#   OBSTACLES: x, y, r, h  -> Saeulen, die der Multiranger erkennt (zum Ausweichen)
+#   Steuerung: mc.start_linear_motion(vx, vy, vz) + time.sleep(t);  Position: mc.x/mc.y/mc.z
+RINGS = [
+    {'x': 1.5, 'y': 0.0,  'z': 1.0, 'r': 0.45},
+    {'x': 3.0, 'y': 0.6,  'z': 0.7, 'r': 0.45},
+    {'x': 4.5, 'y': -0.5, 'z': 1.2, 'r': 0.45},
+]
+OBSTACLES = []          # z. B. [{'x': 2.2, 'y': 0.0, 'r': 0.16, 'h': 1.6}] fuer Saeulen
+
+START_HEIGHT = 1.0
+SPEED = 0.6
+
+def flight(mc, mr):
+    import time
+    def goto(tx, ty, tz, tol=0.06):                    # fliegt proportional zum Zielpunkt
+        while True:
+            dx, dy, dz = tx - mc.x, ty - mc.y, tz - mc.z
+            dist = (dx*dx + dy*dy + dz*dz) ** 0.5
+            if dist < tol:
+                break
+            k = min(SPEED, dist * 2.0) / dist          # Richtung * gedeckelte Geschwindigkeit
+            mc.start_linear_motion(dx*k, dy*k, dz*k)
+            time.sleep(0.1)
+    for g in RINGS:                                    # nacheinander durch jeden Ring
+        goto(g['x'], g['y'], g['z'])
+    if RINGS:                                           # durch den letzten Ring hinausfliegen
+        last = RINGS[-1]
+        goto(last['x'] + 0.7, last['y'], last['z'])
+    mc.stop()
+</textarea>
+        <div class="btnrow">
+          <button id="run" class="primary" disabled>▶ Simulieren</button>
+          <button id="reset">Beispiel laden</button>
+          <span id="status">Lade Python-Laufzeit …</span>
+        </div>
+        <div id="errbox" class="err-box"></div>
+      </div>
+    </div>
+
+    <!-- ── Visualisierung ─────────────────────────────────── -->
+    <div class="col">
+      <div class="panel">
+        <div class="ttl">FLUGBAHN</div>
+        <div id="scene"></div>
+        <div class="legend"><b>3D-Ansicht</b> &nbsp; ziehen = drehen · scrollen = zoom · Rechtsklick-ziehen = verschieben &nbsp;|&nbsp; Bahnfarbe = Höhe (blau→grün→orange)</div>
+
+        <div class="readouts">
+          <div class="ro"><div class="k">ZEIT</div><div class="v" id="roT">0.0<small> s</small></div></div>
+          <div class="ro"><div class="k">HÖHE Z</div><div class="v" id="roZ">0.00<small> m</small></div></div>
+          <div class="ro"><div class="k">v horiz.</div><div class="v" id="roVH">0.00<small> m/s</small></div></div>
+          <div class="ro"><div class="k">v vert.</div><div class="v" id="roVZ">0.00<small> m/s</small></div></div>
+          <div class="ro"><div class="k">POS X</div><div class="v" id="roX">0.00<small> m</small></div></div>
+          <div class="ro"><div class="k">POS Y</div><div class="v" id="roY">0.00<small> m</small></div></div>
+          <div class="ro"><div class="k">PHASE</div><div class="v" id="roP" style="font-size:12px">–</div></div>
+          <div class="ro"><div class="k">SCHRITT</div><div class="v" id="roStep" style="font-size:12px">0 / 0</div></div>
+        </div>
+
+        <canvas id="speedChart"></canvas>
+        <div class="legend"><b style="color:#ffd740">— horizontal</b> &nbsp; <b style="color:#4fc3f7">— vertikal</b> &nbsp;·&nbsp; Geschwindigkeit über Zeit (m/s)</div>
+
+        <div class="controls">
+          <button id="play">▶ Abspielen</button>
+          <input type="range" id="scrub" min="0" max="0" value="0">
+          <label class="hint">Tempo
+            <select id="speed">
+              <option value="0.5">0.5×</option>
+              <option value="1" selected>1×</option>
+              <option value="2">2×</option>
+              <option value="4">4×</option>
+              <option value="999">max</option>
+            </select>
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="foot">
+    <details>
+      <summary>Ins Wiki einbetten</summary>
+      <p style="margin:8px 0">Datei auf <b>GitHub Pages</b> hochladen, dann im Wiki einbetten:</p>
+      <code>&lt;iframe src="https://&lt;dein-user&gt;.github.io/&lt;repo&gt;/crazyflie-sim.html" width="100%" height="900" style="border:0"&gt;&lt;/iframe&gt;</code>
+      <p class="hint" style="margin:8px 0 0">In DokuWiki braucht es dafür das <b>iframe</b>-Plugin (oder erlaubtes Roh-HTML). Reines Verlinken funktioniert immer.</p>
+    </details>
+    <p style="margin:8px 0 0" class="hint">Kinematisches Modell (keine echte pybullet-Dynamik): Position wird aus den Geschwindigkeits-Befehlen integriert. Die <b style="color:#ff5252">roten Säulen</b> sind Hindernisse – der <code>Multiranger</code> liefert die Distanz (<code>mr.front/back/left/right</code> in m, sonst <code>None</code>). Kollisionen werden nicht erzwungen: weicht der Code nicht aus, fliegt die Drohne hindurch. Die <b style="color:#e040fb">Ringe</b> sind Tore zum Durchfliegen – sie werden <b style="color:#69f0ae">grün</b>, sobald die Drohne hindurchgeflogen ist.</p>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/pyodide/v0.27.2/full/pyodide.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script>
+"use strict";
+
+// ── Python-Laufzeit (Harness, das die MotionCommander-API kinematisch nachbildet) ──
+const HARNESS_PY = `
+import math, json, inspect, traceback
+
+class _LimitError(Exception):
+    pass
+
+class MotionCommander:
+    """Kinematische Nachbildung der cflib MotionCommander (Body-Frame, yaw-aware)."""
+    MAX_POINTS = 200000
+
+    def __init__(self, default_height=0.5, default_velocity=0.3):
+        self.default_height = float(default_height)
+        self.default_velocity = float(default_velocity)
+        self.dt = 0.05
+        self.x = self.y = self.z = 0.0
+        self.yaw = 0.0
+        self._vel = (0.0, 0.0, 0.0)   # Body-Frame-Geschwindigkeit für start_linear_motion
+        self._yawrate = 0.0
+        self.t = 0.0
+        self._phase = 'takeoff'
+        self.traj = []
+        self._record(0.0, 0.0, 0.0)
+        self._move(0.0, 0.0, self.default_height, self.default_velocity, 'takeoff')
+
+    def _record(self, vx, vy, vz):
+        if len(self.traj) > self.MAX_POINTS:
+            raise _LimitError("Zu viele Simulationsschritte - vermutlich eine Endlosschleife.")
+        self.traj.append({
+            't': round(self.t, 3),
+            'x': round(self.x, 5), 'y': round(self.y, 5), 'z': round(self.z, 5),
+            'yaw': round(self.yaw, 5),
+            'vx': round(vx, 4), 'vy': round(vy, 4), 'vz': round(vz, 4),
+            'phase': self._phase,
+        })
+
+    def _move(self, dx, dy, dz, velocity=None, phase=''):
+        velocity = float(velocity) if velocity else self.default_velocity
+        velocity = max(0.01, velocity)
+        dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+        if dist < 1e-9:
+            return
+        if phase:
+            self._phase = phase
+        n = max(1, int(math.ceil(dist / (velocity * self.dt))))
+        sx, sy, sz = dx / n, dy / n, dz / n
+        vx, vy, vz = sx / self.dt, sy / self.dt, sz / self.dt
+        for _ in range(n):
+            self.x += sx; self.y += sy; self.z += sz
+            self.t += self.dt
+            self._record(vx, vy, vz)
+
+    def _body(self, fwd, left):
+        c, s = math.cos(self.yaw), math.sin(self.yaw)
+        return fwd * c - left * s, fwd * s + left * c
+
+    # ── hohe API (wie cflib) ──
+    def forward(self, d, velocity=None):
+        dx, dy = self._body(d, 0.0); self._move(dx, dy, 0.0, velocity, 'forward')
+    def back(self, d, velocity=None):
+        dx, dy = self._body(-d, 0.0); self._move(dx, dy, 0.0, velocity, 'back')
+    def left(self, d, velocity=None):
+        dx, dy = self._body(0.0, d); self._move(dx, dy, 0.0, velocity, 'left')
+    def right(self, d, velocity=None):
+        dx, dy = self._body(0.0, -d); self._move(dx, dy, 0.0, velocity, 'right')
+    def up(self, d, velocity=None):
+        self._move(0.0, 0.0, d, velocity, 'up')
+    def down(self, d, velocity=None):
+        self._move(0.0, 0.0, -d, velocity, 'down')
+    def move_distance(self, dx, dy, dz, velocity=None):
+        self._move(dx, dy, dz, velocity, 'move')
+    def forward_left(self, d, velocity=None):
+        dx, dy = self._body(d, d); self._move(dx, dy, 0.0, velocity, 'move')
+
+    def turn_left(self, degrees, rate=None):
+        self.yaw += math.radians(degrees); self._record(0.0, 0.0, 0.0)
+    def turn_right(self, degrees, rate=None):
+        self.yaw -= math.radians(degrees); self._record(0.0, 0.0, 0.0)
+
+    def start_linear_motion(self, vx, vy, vz, rate=0.0):
+        # Kontinuierliche Steuerung (Body-Frame); wirkt waehrend time.sleep()/_advance()
+        self._vel = (float(vx), float(vy), float(vz))
+        self._yawrate = math.radians(float(rate))
+        self._phase = 'move'
+
+    def stop(self):
+        self._vel = (0.0, 0.0, 0.0)
+        self._yawrate = 0.0
+
+    def _advance(self, duration):
+        # Integriert die aktuelle Geschwindigkeit ueber 'duration' Sekunden (von time.sleep)
+        n = max(1, int(round(float(duration) / self.dt)))
+        for _ in range(n):
+            vx, vy, vz = self._vel
+            c, s = math.cos(self.yaw), math.sin(self.yaw)
+            wx = vx*c - vy*s
+            wy = vx*s + vy*c
+            self.x += wx*self.dt
+            self.y += wy*self.dt
+            self.z = max(0.0, self.z + vz*self.dt)
+            self.yaw += self._yawrate*self.dt
+            self.t += self.dt
+            self._record(wx, wy, vz)
+
+    def take_off(self, height=None, velocity=None):
+        h = self.default_height if height is None else float(height)
+        self._move(0.0, 0.0, h - self.z, velocity, 'takeoff')
+    def land(self, velocity=None):
+        self._move(0.0, 0.0, -self.z, velocity, 'land')
+
+    # Komfort: erlaubt 'with MotionCommander(...) as mc:'
+    def __enter__(self): return self
+    def __exit__(self, *a):
+        if self.z > 1e-3:
+            self.land()
+        return False
+
+
+class Multiranger:
+    """Simulierter Multiranger: Distanz (m) zum naechsten Hindernis je Richtung, sonst None."""
+    MAX_RANGE = 4.0
+
+    def __init__(self, mc=None, obstacles=None):
+        self.mc = mc
+        self.obstacles = obstacles or []
+
+    def _ray(self, dirx, diry):
+        if self.mc is None:
+            return None
+        ox, oy, oz = self.mc.x, self.mc.y, self.mc.z
+        best = None
+        for o in self.obstacles:
+            if oz > o.get('h', 99):   # Hindernis endet unter der Drohne
+                continue
+            fx, fy = ox - o['x'], oy - o['y']
+            b  = 2.0*(fx*dirx + fy*diry)
+            cc = fx*fx + fy*fy - o['r']*o['r']
+            disc = b*b - 4.0*cc
+            if disc < 0:
+                continue
+            sq = math.sqrt(disc)
+            for t in ((-b - sq)/2.0, (-b + sq)/2.0):
+                if t > 1e-3:
+                    if best is None or t < best:
+                        best = t
+                    break
+        if best is None or best > self.MAX_RANGE:
+            return None
+        return round(best, 3)
+
+    def _dir(self, fwd, left):
+        c, s = math.cos(self.mc.yaw), math.sin(self.mc.yaw)
+        return (fwd*c - left*s, fwd*s + left*c)
+
+    @property
+    def front(self): return self._ray(*self._dir(1.0, 0.0))
+    @property
+    def back(self):  return self._ray(*self._dir(-1.0, 0.0))
+    @property
+    def left(self):  return self._ray(*self._dir(0.0, 1.0))
+    @property
+    def right(self): return self._ray(*self._dir(0.0, -1.0))
+    @property
+    def up(self):    return None
+    @property
+    def down(self):  return None if self.mc is None else round(self.mc.z, 3)
+
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+
+
+def _norm_obstacles(raw):
+    # akzeptiert dicts {x,y,r,h} oder Listen/Tupel (x, y[, r[, h]])
+    out = []
+    for o in raw:
+        if isinstance(o, dict):
+            out.append({'x': float(o.get('x', 0)), 'y': float(o.get('y', 0)),
+                        'r': float(o.get('r', 0.16)), 'h': float(o.get('h', 1.6))})
+        else:
+            o = list(o)
+            out.append({'x': float(o[0]), 'y': float(o[1]),
+                        'r': float(o[2]) if len(o) > 2 else 0.16,
+                        'h': float(o[3]) if len(o) > 3 else 1.6})
+    return out
+
+def _norm_rings(raw):
+    # akzeptiert dicts {x,y,z,r} oder Listen/Tupel (x, y[, z[, r]])
+    out = []
+    for o in raw:
+        if isinstance(o, dict):
+            out.append({'x': float(o.get('x', 0)), 'y': float(o.get('y', 0)),
+                        'z': float(o.get('z', 1.0)), 'r': float(o.get('r', 0.4))})
+        else:
+            o = list(o)
+            out.append({'x': float(o[0]), 'y': float(o[1]),
+                        'z': float(o[2]) if len(o) > 2 else 1.0,
+                        'r': float(o[3]) if len(o) > 3 else 0.4})
+    return out
+
+def _run():
+    try:
+        obstacles = json.loads(OBSTACLES_JSON) if 'OBSTACLES_JSON' in globals() and OBSTACLES_JSON else []
+    except Exception:
+        obstacles = []
+    try:
+        rings = json.loads(RINGS_JSON) if 'RINGS_JSON' in globals() and RINGS_JSON else []
+    except Exception:
+        rings = []
+    ns = {'MotionCommander': MotionCommander, 'Multiranger': Multiranger}
+    try:
+        exec(USER_CODE, ns)
+        # Hindernisse aus dem Editor-Code (OBSTACLES = [...]) haben Vorrang vor dem Standard
+        if isinstance(ns.get('OBSTACLES'), (list, tuple)):
+            obstacles = _norm_obstacles(ns['OBSTACLES'])
+        if isinstance(ns.get('RINGS'), (list, tuple)):
+            rings = _norm_rings(ns['RINGS'])
+        fn = ns.get('flight') or ns.get('run_parkour') or ns.get('run') or ns.get('main')
+        if fn is None:
+            raise RuntimeError("Keine Funktion gefunden. Bitte 'def flight(mc, mr):' definieren.")
+        height = ns.get('START_HEIGHT', 0.5)
+        speed  = ns.get('FLY_SPEED', ns.get('SPEED', 0.3))
+        mc = MotionCommander(default_height=height, default_velocity=speed)
+        mr = Multiranger(mc, obstacles)
+        import time as _t
+        _t.sleep = lambda secs=0.0: mc._advance(secs)   # time.sleep() treibt die Sim voran
+        nargs = len(inspect.signature(fn).parameters)
+        if nargs >= 2:
+            fn(mc, mr)
+        elif nargs == 1:
+            fn(mc)
+        else:
+            fn()
+        if mc.z > 1e-3:
+            mc.land()
+        return json.dumps({'ok': True, 'traj': mc.traj, 'obstacles': obstacles, 'rings': rings})
+    except Exception as e:
+        msg = ''.join(traceback.format_exception_only(type(e), e)).strip()
+        return json.dumps({'ok': False, 'error': msg, 'trace': traceback.format_exc()})
+
+_run()
+`;
+
+// ── Globaler Zustand ──
+let pyodide = null;
+let traj = [];
+let bounds = null;
+let chartTop = 0.6, chartBot = -0.2;   // y-Bereich des Speed-Diagramms (aus der Bahn)
+let cur = 0;
+let playing = false;
+let lastTs = 0;
+const DT = 0.05;
+
+// Hindernis-Parcours (Säulen) – wird in 3D gezeichnet UND an Python (Multiranger) übergeben.
+// x = vorne, y = links, r = Radius, h = Höhe (alles in Metern).
+const OBSTACLES = [
+  { x:1.0, y:0.0,  r:0.16, h:1.6 },
+  { x:2.0, y:0.0,  r:0.16, h:1.6 },
+  { x:3.0, y:0.0,  r:0.16, h:1.6 },
+  { x:4.0, y:0.0,  r:0.16, h:1.6 },
+];
+
+// Ringe (Tore) zum Durchfliegen – ebenfalls im Editor-Code (RINGS = [...]) aenderbar.
+// x = vorne, y = links, z = Höhe (Mittelpunkt), r = Radius (Meter).
+const RINGS = [
+  { x:1.5, y:0.0,  z:1.0, r:0.45 },
+  { x:3.0, y:0.6,  z:0.7, r:0.45 },
+  { x:4.5, y:-0.5, z:1.2, r:0.45 },
+];
+
+const $ = id => document.getElementById(id);
+const elStatus = $("status"), elErr = $("errbox");
+
+// ── Pyodide laden ──
+async function boot(){
+  try{
+    pyodide = await loadPyodide();
+    setStatus("Bereit. Code eingeben und ▶ Simulieren.", "ok");
+    $("run").disabled = false;
+    // sofort das Beispiel rechnen, damit man gleich was sieht
+    runSim();
+  }catch(e){
+    setStatus("Konnte Python-Laufzeit nicht laden (Internet/CDN?).", "err");
+    console.error(e);
+  }
+}
+function setStatus(msg, cls){
+  elStatus.textContent = msg;
+  elStatus.className = cls || "";
+}
+
+// ── Simulation ausführen ──
+async function runSim(){
+  if(!pyodide) return;
+  elErr.style.display = "none";
+  setStatus("Rechne …", "");
+  $("run").disabled = true;
+  // kurzes Yield, damit der Status sichtbar wird
+  await new Promise(r => setTimeout(r, 10));
+  try{
+    pyodide.globals.set("USER_CODE", $("code").value);
+    pyodide.globals.set("OBSTACLES_JSON", JSON.stringify(OBSTACLES));
+    pyodide.globals.set("RINGS_JSON", JSON.stringify(RINGS));
+    const out = JSON.parse(await pyodide.runPythonAsync(HARNESS_PY));
+    if(!out.ok){
+      setStatus("Fehler im Flugcode.", "err");
+      elErr.textContent = out.trace || out.error;
+      elErr.style.display = "block";
+      return;
+    }
+    traj = out.traj;
+    if(out.obstacles) buildObstacles(out.obstacles);          // Säulen aus dem Editor-Code
+    if(out.rings){ markRingsPassed(out.rings); buildRings(out.rings); }  // Ringe + grün, wenn durchflogen
+    if(traj.length < 2){
+      setStatus("Bahn ist leer – bewegt sich die Drohne?", "err");
+      return;
+    }
+    computeBounds();
+    buildTrail();
+    $("scrub").max = traj.length - 1;
+    setStatus("Fertig: " + traj.length + " Schritte (" + traj[traj.length-1].t.toFixed(1) + " s).", "ok");
+    cur = 0;
+    play(true);
+  }catch(e){
+    setStatus("Unerwarteter Fehler.", "err");
+    elErr.textContent = String(e);
+    elErr.style.display = "block";
+    console.error(e);
+  }finally{
+    $("run").disabled = false;
+  }
+}
+
+function computeBounds(){
+  let xmin=1e9,xmax=-1e9,ymin=1e9,ymax=-1e9,zmin=1e9,zmax=-1e9, mh=0, vhi=0, vlo=0;
+  for(const p of traj){
+    xmin=Math.min(xmin,p.x); xmax=Math.max(xmax,p.x);
+    ymin=Math.min(ymin,p.y); ymax=Math.max(ymax,p.y);
+    zmin=Math.min(zmin,p.z); zmax=Math.max(zmax,p.z);
+    mh=Math.max(mh, Math.hypot(p.vx,p.vy)); vhi=Math.max(vhi,p.vz); vlo=Math.min(vlo,p.vz);
+  }
+  bounds = {xmin,xmax,ymin,ymax,zmin:Math.min(0,zmin),zmax};
+  chartTop = Math.max(0.2, mh, vhi) * 1.1;
+  chartBot = Math.min(0, vlo) * 1.1;
+}
+
+// ── 3D-Szene (Three.js) ──────────────────────────────────────
+let scene, camera, renderer, controls, drone, trailGeom, trailLine, poleLine, startMarker;
+let threeReady = false;
+let obstacleMeshes = [];
+let ringMeshes = [];
+
+// Höhe -> Farbe [r,g,b] in 0..1 (blau → grün → orange)
+function heightColor01(z){
+  const b = bounds || {zmin:0, zmax:1};
+  let t = (z - b.zmin) / Math.max(1e-3, b.zmax - b.zmin);
+  t = Math.max(0, Math.min(1, t));
+  const c1=[79,195,247], c2=[105,240,174], c3=[255,215,64];
+  let a,bb,f;
+  if(t<0.5){ a=c1; bb=c2; f=t/0.5; } else { a=c2; bb=c3; f=(t-0.5)/0.5; }
+  return [ (a[0]+(bb[0]-a[0])*f)/255, (a[1]+(bb[1]-a[1])*f)/255, (a[2]+(bb[2]-a[2])*f)/255 ];
+}
+
+// Drohnen-Koordinaten (x vorne, y links, z hoch) -> Three.js (Y = hoch)
+function to3(x,y,z){ return new THREE.Vector3(x, z, y); }
+
+function buildDrone(){
+  const g = new THREE.Group();
+  const span = 0.36, e = span/(2*Math.SQRT2);
+  const rotors = [];
+
+  // Körper (abgeflacht) + Canopy
+  g.add(new THREE.Mesh(
+    new THREE.BoxGeometry(0.13,0.045,0.13),
+    new THREE.MeshStandardMaterial({ color:0x202a44, metalness:0.4, roughness:0.5 })));
+  const canopy = new THREE.Mesh(
+    new THREE.SphereGeometry(0.055,18,12,0,Math.PI*2,0,Math.PI/2),
+    new THREE.MeshStandardMaterial({ color:0x4fc3f7, metalness:0.3, roughness:0.35 }));
+  canopy.position.y = 0.022; canopy.scale.set(1,0.65,1); g.add(canopy);
+
+  // Arme (X-Frame)
+  const armMat = new THREE.MeshStandardMaterial({ color:0x2d3a55, metalness:0.3, roughness:0.6 });
+  for(const th of [Math.PI/4, -Math.PI/4]){
+    const arm = new THREE.Mesh(new THREE.BoxGeometry(span,0.018,0.024), armMat);
+    arm.rotation.y = th; g.add(arm);
+  }
+
+  // Motoren + drehende 2-Blatt-Propeller an den 4 Enden
+  const motorMat = new THREE.MeshStandardMaterial({ color:0x11151f, metalness:0.6, roughness:0.4 });
+  const bladeMat = new THREE.MeshStandardMaterial({ color:0x69f0ae, transparent:true, opacity:0.9, side:THREE.DoubleSide });
+  for(const [dx,dz] of [[e,e],[e,-e],[-e,e],[-e,-e]]){
+    const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.024,0.024,0.034,14), motorMat);
+    motor.position.set(dx,0.017,dz); g.add(motor);
+    const prop = new THREE.Group(); prop.position.set(dx,0.04,dz);
+    for(let k=0;k<2;k++){
+      const blade = new THREE.Mesh(new THREE.BoxGeometry(0.14,0.005,0.022), bladeMat);
+      blade.rotation.y = k*Math.PI/2; prop.add(blade);
+    }
+    const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.012,0.012,0.012,10), motorMat);
+    prop.add(hub);
+    g.add(prop); rotors.push(prop);
+  }
+
+  // Landebeine
+  const legMat = new THREE.MeshStandardMaterial({ color:0x2d3a55 });
+  for(const [dx,dz] of [[0.06,0.06],[0.06,-0.06],[-0.06,0.06],[-0.06,-0.06]]){
+    const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.006,0.006,0.06,6), legMat);
+    leg.position.set(dx,-0.045,dz); g.add(leg);
+  }
+
+  // Nase in Flugrichtung (+X)
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.022,0.07,14),
+    new THREE.MeshStandardMaterial({ color:0xff5252 }));
+  nose.rotation.z = -Math.PI/2; nose.position.set(0.095,0,0); g.add(nose);
+
+  g.userData.rotors = rotors;
+  return g;
+}
+
+function buildObstacles(list){
+  // alte Säulen entfernen
+  for(const m of obstacleMeshes){ scene.remove(m); m.geometry.dispose(); }
+  obstacleMeshes = [];
+  const mat = new THREE.MeshStandardMaterial({
+    color:0xff5252, transparent:true, opacity:0.42, metalness:0.1, roughness:0.7 });
+  for(const o of (list || OBSTACLES)){
+    const cyl = new THREE.Mesh(new THREE.CylinderGeometry(o.r, o.r, o.h, 22), mat);
+    cyl.position.set(o.x, o.h/2, o.y);   // Three: X=vorne, Y=hoch, Z=links
+    scene.add(cyl); obstacleMeshes.push(cyl);
+  }
+}
+
+function buildRings(list){
+  for(const m of ringMeshes){ scene.remove(m); m.geometry.dispose(); }
+  ringMeshes = [];
+  for(const o of (list || RINGS)){
+    const passed = !!o._passed;
+    const mat = new THREE.MeshStandardMaterial({
+      color: passed ? 0x69f0ae : 0xe040fb,
+      emissive: passed ? 0x123524 : 0x2e0e38, metalness:0.3, roughness:0.4 });
+    const torus = new THREE.Mesh(new THREE.TorusGeometry(o.r, 0.05, 16, 40), mat);
+    torus.position.set(o.x, o.z, o.y);   // Three: X=vorne, Y=hoch, Z=links
+    torus.rotation.y = Math.PI/2;        // Loch zeigt in Flugrichtung (+X)
+    scene.add(torus); ringMeshes.push(torus);
+  }
+}
+
+// markiert Ringe, die die Bahn (innerhalb des Radius) durchquert oder erreicht
+function markRingsPassed(rings){
+  for(const g of rings){
+    g._passed = false;
+    for(let i=0;i<traj.length;i++){
+      const p = traj[i];
+      // Punkt nahe der Ring-Ebene und innerhalb des Radius (Ring erreicht)
+      if(Math.abs(p.x - g.x) <= 0.12 && Math.hypot(p.y-g.y, p.z-g.z) <= g.r){ g._passed=true; break; }
+      // ODER: Segment kreuzt die Ring-Ebene innerhalb des Radius (durchgeflogen)
+      if(i>0){
+        const a=traj[i-1];
+        if(a.x !== p.x && (a.x-g.x)*(p.x-g.x) <= 0){
+          const t=(g.x-a.x)/(p.x-a.x);
+          const yy=a.y+t*(p.y-a.y), zz=a.z+t*(p.z-a.z);
+          if(Math.hypot(yy-g.y, zz-g.z) <= g.r){ g._passed=true; break; }
+        }
+      }
+    }
+  }
+}
+
+function initThree(){
+  const el = $("scene");
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0d1424);
+
+  camera = new THREE.PerspectiveCamera(55, el.clientWidth/Math.max(1,el.clientHeight), 0.05, 500);
+  camera.position.set(2.4, 2.0, 2.8);
+
+  renderer = new THREE.WebGLRenderer({ antialias:true });
+  renderer.setPixelRatio(window.devicePixelRatio || 1);
+  renderer.setSize(el.clientWidth, el.clientHeight);
+  el.appendChild(renderer.domElement);
+
+  controls = new THREE.OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true; controls.dampingFactor = 0.08;
+  controls.target.set(0.3, 0.6, 0);
+
+  scene.add(new THREE.AmbientLight(0xffffff, 0.8));
+  const dir = new THREE.DirectionalLight(0xffffff, 0.55); dir.position.set(3,5,2); scene.add(dir);
+
+  const grid = new THREE.GridHelper(14, 28, 0x2d3a55, 0x1e2a42);
+  scene.add(grid);
+
+  buildObstacles();
+  buildRings();
+
+  trailGeom = new THREE.BufferGeometry();
+  trailLine = new THREE.Line(trailGeom, new THREE.LineBasicMaterial({ vertexColors:true }));
+  scene.add(trailLine);
+
+  poleLine = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
+    new THREE.LineBasicMaterial({ color:0x2d3a55, transparent:true, opacity:0.6 }));
+  scene.add(poleLine);
+
+  startMarker = new THREE.Mesh(new THREE.SphereGeometry(0.03,12,12),
+    new THREE.MeshBasicMaterial({ color:0x2d3a55 }));
+  scene.add(startMarker);
+
+  drone = buildDrone(); scene.add(drone);
+
+  threeReady = true;
+  window.addEventListener("resize", onResize);
+  animate();
+}
+
+// Trail-Geometrie aus der aktuellen Bahn aufbauen (Farbe nach Höhe)
+function buildTrail(){
+  if(!threeReady || !traj.length) return;
+  const pos = new Float32Array(traj.length*3);
+  const col = new Float32Array(traj.length*3);
+  for(let i=0;i<traj.length;i++){
+    const p = traj[i], v = to3(p.x,p.y,p.z);
+    pos[i*3]=v.x; pos[i*3+1]=v.y; pos[i*3+2]=v.z;
+    const c = heightColor01(p.z); col[i*3]=c[0]; col[i*3+1]=c[1]; col[i*3+2]=c[2];
+  }
+  trailGeom.setAttribute('position', new THREE.BufferAttribute(pos,3));
+  trailGeom.setAttribute('color', new THREE.BufferAttribute(col,3));
+  trailGeom.setDrawRange(0, 1);
+  startMarker.position.copy(to3(traj[0].x, traj[0].y, traj[0].z));
+  // Kamera so setzen, dass die ganze Bahn ins Bild passt
+  const cx=(bounds.xmin+bounds.xmax)/2, cy=(bounds.zmin+bounds.zmax)/2, cz=(bounds.ymin+bounds.ymax)/2;
+  controls.target.set(cx, Math.max(0.4,cy), cz);
+  const r = Math.max(2.2, bounds.xmax-bounds.xmin, bounds.ymax-bounds.ymin);
+  camera.position.set(cx - r*0.15, cy + r*0.7, cz + r*1.05);
+  camera.updateProjectionMatrix();
+}
+
+function update3D(){
+  if(!threeReady || !traj.length) return;
+  const i = Math.min(cur, traj.length-1), p = traj[i];
+  const v = to3(p.x,p.y,p.z);
+  drone.position.copy(v);
+  drone.rotation.y = -(p.yaw || 0);
+  poleLine.geometry.setFromPoints([ v, new THREE.Vector3(v.x,0,v.z) ]);
+  trailGeom.setDrawRange(0, i+1);
+  updateReadouts();
+}
+
+// Kompatibilität mit Scrub-/Resize-Handlern
+function render(){ update3D(); }
+
+function onResize(){
+  if(threeReady){
+    const el = $("scene");
+    camera.aspect = el.clientWidth/Math.max(1,el.clientHeight);
+    camera.updateProjectionMatrix();
+    renderer.setSize(el.clientWidth, el.clientHeight);
+  }
+  drawSpeedChart();
+}
+
+function updateReadouts(){
+  const p = traj[Math.min(cur,traj.length-1)];
+  const vh = Math.hypot(p.vx,p.vy);
+  $("roT").innerHTML = p.t.toFixed(1)+'<small> s</small>';
+  $("roZ").innerHTML = p.z.toFixed(2)+'<small> m</small>';
+  $("roVH").innerHTML = vh.toFixed(2)+'<small> m/s</small>';
+  $("roVZ").innerHTML = (p.vz>=0?'+':'')+p.vz.toFixed(2)+'<small> m/s</small>';
+
+  drawSpeedChart();
+  $("roX").innerHTML = p.x.toFixed(2)+'<small> m</small>';
+  $("roY").innerHTML = p.y.toFixed(2)+'<small> m</small>';
+  $("roP").textContent = p.phase || '–';
+  $("roStep").textContent = cur+' / '+(traj.length-1);
+  $("scrub").value = cur;
+}
+
+// Live-Liniendiagramm der Geschwindigkeit (horizontal + vertikal) über die Zeit
+function drawSpeedChart(){
+  const cv = $("speedChart"); if(!cv) return;
+  const dpr = window.devicePixelRatio || 1;
+  const rect = cv.getBoundingClientRect();
+  const w = Math.max(80, Math.round(rect.width)), h = Math.max(60, Math.round(rect.height));
+  if(cv.width !== w*dpr || cv.height !== h*dpr){ cv.width = w*dpr; cv.height = h*dpr; }
+  const ctx = cv.getContext("2d"); ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.fillStyle = "#0d1424"; ctx.fillRect(0,0,w,h);
+  if(!traj.length) return;
+  const padL=32, padR=8, padT=8, padB=12;
+  const pw = w-padL-padR, ph = h-padT-padB, n = traj.length;
+  const top = chartTop, bot = chartBot, span = Math.max(1e-3, top-bot);
+  const xOf = i => padL + (n<2 ? 0 : i/(n-1))*pw;
+  const yOf = v => padT + (top-v)/span*ph;
+  // Gitterlinien + Beschriftung (oben, 0, unten)
+  ctx.font = "9px monospace"; ctx.textBaseline = "middle";
+  for(const val of [top, 0, bot]){
+    if(val > top+1e-9 || val < bot-1e-9) continue;
+    const yy = yOf(val), zero = Math.abs(val) < 1e-6;
+    ctx.strokeStyle = zero ? "#3d4a65" : "#1a2540"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(padL,yy); ctx.lineTo(w-padR,yy); ctx.stroke();
+    ctx.fillStyle = "#7986a0"; ctx.fillText(val.toFixed(1), 3, yy);
+  }
+  const upto = Math.min(cur, n-1);
+  const drawLine = (fn, color) => {
+    ctx.strokeStyle = color; ctx.lineWidth = 1.7; ctx.lineJoin = "round"; ctx.beginPath();
+    for(let i=0;i<=upto;i++){ const x=xOf(i), y=yOf(fn(traj[i])); i?ctx.lineTo(x,y):ctx.moveTo(x,y); }
+    ctx.stroke();
+  };
+  drawLine(p => Math.hypot(p.vx,p.vy), "#ffd740");  // horizontal
+  drawLine(p => p.vz, "#4fc3f7");                    // vertikal
+  // Laufcursor an der aktuellen Position
+  const cx = xOf(upto);
+  ctx.strokeStyle = "#7986a0"; ctx.globalAlpha = 0.6; ctx.setLineDash([3,3]);
+  ctx.beginPath(); ctx.moveTo(cx,padT); ctx.lineTo(cx,h-padB); ctx.stroke();
+  ctx.setLineDash([]); ctx.globalAlpha = 1;
+}
+
+// ── Animation ── eine durchgehende Schleife: Drehen/Zoomen geht auch bei Pause
+function play(state){
+  if(!traj.length) return;
+  playing = state;
+  $("play").textContent = playing ? "⏸ Pause" : "▶ Abspielen";
+  if(playing){
+    if(cur >= traj.length-1) cur = 0;
+    lastTs = performance.now();
+  }
+}
+function animate(){
+  requestAnimationFrame(animate);
+  if(playing && traj.length){
+    const now = performance.now();
+    const speed = parseFloat($("speed").value);
+    const dt = (now - lastTs)/1000; lastTs = now;
+    if(speed >= 999) cur = traj.length-1;
+    else cur += Math.max(1, Math.round(speed * dt / DT));
+    if(cur >= traj.length-1){ cur = traj.length-1; playing = false; $("play").textContent = "▶ Abspielen"; }
+    update3D();
+  }
+  // Propeller drehen (immer; schneller wenn die Drohne fliegt)
+  if(drone && drone.userData.rotors){
+    const spin = playing ? 0.85 : 0.22;
+    for(const r of drone.userData.rotors) r.rotation.y += spin;
+  }
+  if(controls) controls.update();
+  if(renderer) renderer.render(scene, camera);
+}
+
+// ── Events ──
+$("run").addEventListener("click", runSim);
+$("play").addEventListener("click", ()=>play(!playing));
+$("scrub").addEventListener("input", e=>{ play(false); cur=parseInt(e.target.value,10)||0; render(); });
+$("speed").addEventListener("change", ()=>{ lastTs=performance.now(); });
+$("reset").addEventListener("click", ()=>{ $("code").value = DEFAULT_CODE; });
+
+const DEFAULT_CODE = $("code").value;
+initThree();   // 3D-Szene starten (läuft auch ohne Simulation)
+boot();        // Pyodide laden, dann Beispiel rechnen
+</script>
+</body>
+</html>
