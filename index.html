@@ -54,6 +54,9 @@
   .ro .v{font-size:15px; font-weight:700; color:var(--grn)}
   .ro .v small{font-size:10px; color:var(--dim); font-weight:400}
   #speedChart{width:100%; height:120px; background:#0d1424; border:1px solid var(--edge2); border-radius:6px; display:block; margin-top:8px}
+  .editbar{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px}
+  .editbar #editTools{display:inline-flex; gap:8px; align-items:center; flex-wrap:wrap}
+  .editbar input[type=range]{width:88px; vertical-align:middle}
   .controls{display:flex; gap:10px; align-items:center; margin-top:10px; flex-wrap:wrap}
   .controls input[type=range]{flex:1 1 160px}
   .controls select{background:#0d1424; color:var(--wht); border:1px solid var(--edge2); border-radius:6px; padding:4px 6px; font-family:inherit}
@@ -74,11 +77,9 @@
     <div class="col">
       <div class="panel">
         <div class="ttl">FLUGCODE  (Python)</div>
-        <textarea id="code" spellcheck="false"># === GUTER PARCOURS ===  durch die Ringe fliegen + um die Saeulen herum.
-# Alles HIER aenderbar (kein HTML noetig):
-#   RINGS     x=vorne, y=links, z=Hoehe, r=Radius  -> hindurchfliegen (gruen = geschafft)
-#   OBSTACLES x, y, r, h                            -> rote Saeulen (Multiranger erkennt sie)
-#   Steuerung: mc.start_linear_motion(vx,vy,vz)+time.sleep(t);  Position: mc.x/mc.y/mc.z
+        <textarea id="code" spellcheck="false"># === PARCOURS ===  durch die Ringe fliegen.
+# Tipp: oben "✎ Parcours bearbeiten" -> Ringe/Saeulen mit der MAUS ziehen, dann "Uebernehmen".
+# Oder hier im Code: x=vorne, y=links, z=Hoehe, r=Radius (OBSTACLES zusaetzlich h=Hoehe).
 RINGS = [
     {'x': 1.2, 'y':  0.0, 'z': 1.2, 'r': 0.45},   # 1: mittig, hoch
     {'x': 2.8, 'y': -0.7, 'z': 0.8, 'r': 0.45},   # 2: rechts, tief
@@ -86,9 +87,9 @@ RINGS = [
     {'x': 6.0, 'y':  0.0, 'z': 0.9, 'r': 0.45},   # 4: mittig, Ziel
 ]
 OBSTACLES = [
-    {'x': 2.0, 'y': -0.35, 'r': 0.18, 'h': 2.2},  # Saeule zwischen Ring 1 & 2
-    {'x': 3.6, 'y':  0.0,  'r': 0.18, 'h': 2.2},  # Saeule zwischen Ring 2 & 3
-    {'x': 5.2, 'y':  0.35, 'r': 0.18, 'h': 2.2},  # Saeule zwischen Ring 3 & 4
+    {'x': 1.9, 'y':  0.5, 'r': 0.18, 'h': 1.8},   # Saeulen, vom Multiranger erkannt
+    {'x': 3.6, 'y': -0.8, 'r': 0.18, 'h': 1.8},   # (mr.front / mr.left / mr.right ...)
+    {'x': 5.2, 'y':  0.9, 'r': 0.18, 'h': 1.8},
 ]
 
 START_HEIGHT = 1.2
@@ -96,18 +97,7 @@ SPEED = 0.7
 
 def flight(mc, mr):
     import time
-    # Geplanter Pfad: durch jeden Ring + Wegpunkte, die um die Saeulen herumfuehren.
-    PATH = [
-        (1.2,  0.0,  1.2),   # Ring 1
-        (2.0,  0.25, 1.0),   # links an Saeule 1 vorbei
-        (2.8, -0.7,  0.8),   # Ring 2
-        (3.15, 0.45, 1.1),   # frueh hochziehen, neben Saeule 2
-        (4.4,  0.7,  1.4),   # Ring 3
-        (5.3,  0.85, 1.2),   # aussen an Saeule 3 vorbei
-        (6.0,  0.0,  0.9),   # Ring 4 (Ziel)
-        (6.7,  0.0,  0.9),   # hinausfliegen
-    ]
-    def goto(tx, ty, tz, tol=0.07):                    # fliegt proportional zum Wegpunkt
+    def goto(tx, ty, tz, tol=0.1):                     # fliegt proportional zum Zielpunkt
         while True:
             dx, dy, dz = tx - mc.x, ty - mc.y, tz - mc.z
             dist = (dx*dx + dy*dy + dz*dz) ** 0.5
@@ -116,8 +106,11 @@ def flight(mc, mr):
             k = min(SPEED, dist * 1.6) / dist
             mc.start_linear_motion(dx*k, dy*k, dz*k)
             time.sleep(0.1)
-    for (x, y, z) in PATH:
-        goto(x, y, z)
+    for g in RINGS:                                    # durch jeden Ring – folgt auch verschobenen Ringen
+        goto(g['x'], g['y'], g['z'])
+    if RINGS:                                           # durch den letzten Ring hinausfliegen
+        last = RINGS[-1]
+        goto(last['x'] + 0.7, last['y'], last['z'])
     mc.stop()
 </textarea>
         <div class="btnrow">
@@ -134,7 +127,19 @@ def flight(mc, mr):
       <div class="panel">
         <div class="ttl">FLUGBAHN</div>
         <div id="scene"></div>
-        <div class="legend"><b>3D-Ansicht</b> &nbsp; ziehen = drehen · scrollen = zoom · Rechtsklick-ziehen = verschieben &nbsp;|&nbsp; Bahnfarbe = Höhe (blau→grün→orange)</div>
+        <div class="legend"><b>3D-Ansicht</b> &nbsp; ziehen = drehen · scrollen = zoom · Rechtsklick-ziehen = verschieben &nbsp;|&nbsp; Bahnfarbe = Höhe</div>
+        <div class="editbar">
+          <button id="editToggle">✎ Parcours bearbeiten</button>
+          <span id="editTools" style="display:none">
+            <button id="addRing">+ Ring</button>
+            <button id="addObs">+ Säule</button>
+            <button id="delSel" disabled>🗑 Löschen</button>
+            <label class="hint">Höhe <input id="selH" type="range" min="0.3" max="2.4" step="0.05" disabled></label>
+            <label class="hint">Radius <input id="selR" type="range" min="0.1" max="0.8" step="0.02" disabled></label>
+            <button id="applyEdit" class="primary">✓ Übernehmen &amp; Simulieren</button>
+          </span>
+        </div>
+        <div class="legend" id="editHint" style="display:none">Objekt anklicken &amp; ziehen zum Verschieben · auf „+ Ring/Säule" klicken fügt am Kamerafokus hinzu · „Übernehmen" schreibt die Positionen in den Code und simuliert.</div>
 
         <div class="readouts">
           <div class="ro"><div class="k">ZEIT</div><div class="v" id="roT">0.0<small> s</small></div></div>
@@ -534,6 +539,10 @@ let scene, camera, renderer, controls, drone, trailGeom, trailLine, poleLine, st
 let threeReady = false;
 let obstacleMeshes = [];
 let ringMeshes = [];
+// ── Editor-Status (Ringe/Säulen per Maus platzieren) ──
+let editRings = [], editObstacles = [];
+let editMode = false, selected = null, dragging = null, selBox = null;
+let edRaycaster = null; const edGround = { plane:null };
 
 // Höhe -> Farbe [r,g,b] in 0..1 (blau → grün → orange)
 function heightColor01(z){
@@ -602,32 +611,37 @@ function buildDrone(){
   return g;
 }
 
-function buildObstacles(list){
-  // alte Säulen entfernen
-  for(const m of obstacleMeshes){ scene.remove(m); m.geometry.dispose(); }
-  obstacleMeshes = [];
+function obstacleMesh(it){
   const mat = new THREE.MeshStandardMaterial({
     color:0xff5252, transparent:true, opacity:0.42, metalness:0.1, roughness:0.7 });
-  for(const o of (list || OBSTACLES)){
-    const cyl = new THREE.Mesh(new THREE.CylinderGeometry(o.r, o.r, o.h, 22), mat);
-    cyl.position.set(o.x, o.h/2, o.y);   // Three: X=vorne, Y=hoch, Z=links
-    scene.add(cyl); obstacleMeshes.push(cyl);
-  }
+  const cyl = new THREE.Mesh(new THREE.CylinderGeometry(it.r, it.r, it.h, 22), mat);
+  cyl.position.set(it.x, it.h/2, it.y);   // Three: X=vorne, Y=hoch, Z=links
+  cyl.userData = { kind:'obstacle', item:it }; it.mesh = cyl; it._kind = 'obstacle';
+  scene.add(cyl); obstacleMeshes.push(cyl);
+}
+function buildObstacles(list){
+  for(const m of obstacleMeshes){ scene.remove(m); m.geometry.dispose(); }
+  obstacleMeshes = [];
+  editObstacles = (list || OBSTACLES).map(o => ({ x:o.x, y:o.y, r:o.r, h:(o.h!=null?o.h:1.6) }));
+  for(const it of editObstacles) obstacleMesh(it);
 }
 
+function ringMesh(it){
+  const passed = !!it._passed;
+  const mat = new THREE.MeshStandardMaterial({
+    color: passed ? 0x69f0ae : 0xe040fb,
+    emissive: passed ? 0x123524 : 0x2e0e38, metalness:0.3, roughness:0.4 });
+  const torus = new THREE.Mesh(new THREE.TorusGeometry(it.r, 0.05, 16, 40), mat);
+  torus.position.set(it.x, it.z, it.y);   // Three: X=vorne, Y=hoch, Z=links
+  torus.rotation.y = Math.PI/2;           // Loch zeigt in Flugrichtung (+X)
+  torus.userData = { kind:'ring', item:it }; it.mesh = torus; it._kind = 'ring';
+  scene.add(torus); ringMeshes.push(torus);
+}
 function buildRings(list){
   for(const m of ringMeshes){ scene.remove(m); m.geometry.dispose(); }
   ringMeshes = [];
-  for(const o of (list || RINGS)){
-    const passed = !!o._passed;
-    const mat = new THREE.MeshStandardMaterial({
-      color: passed ? 0x69f0ae : 0xe040fb,
-      emissive: passed ? 0x123524 : 0x2e0e38, metalness:0.3, roughness:0.4 });
-    const torus = new THREE.Mesh(new THREE.TorusGeometry(o.r, 0.05, 16, 40), mat);
-    torus.position.set(o.x, o.z, o.y);   // Three: X=vorne, Y=hoch, Z=links
-    torus.rotation.y = Math.PI/2;        // Loch zeigt in Flugrichtung (+X)
-    scene.add(torus); ringMeshes.push(torus);
-  }
+  editRings = (list || RINGS).map(o => ({ x:o.x, y:o.y, z:(o.z!=null?o.z:1.0), r:o.r, _passed:!!o._passed }));
+  for(const it of editRings) ringMesh(it);
 }
 
 // markiert Ringe, die die Bahn (innerhalb des Radius) durchquert oder erreicht
@@ -649,6 +663,100 @@ function markRingsPassed(rings){
       }
     }
   }
+}
+
+// ── Parcours-Editor: Ringe/Säulen in der 3D-Szene platzieren ───────────────
+function setupEditor(){
+  edRaycaster = new THREE.Raycaster();
+  edGround.plane = new THREE.Plane(new THREE.Vector3(0,1,0), 0);  // Boden (Three y=0)
+  renderer.domElement.addEventListener('pointerdown', onEdDown, true); // capture: vor OrbitControls
+  window.addEventListener('pointermove', onEdMove);
+  window.addEventListener('pointerup', onEdUp);
+}
+function toggleEditMode(){
+  editMode = !editMode;
+  $("editTools").style.display = editMode ? 'inline-flex' : 'none';
+  $("editHint").style.display = editMode ? 'block' : 'none';
+  $("editToggle").textContent = editMode ? '✓ Fertig' : '✎ Parcours bearbeiten';
+  $("editToggle").classList.toggle('primary', editMode);
+  if(!editMode) selectItem(null);
+}
+function selectItem(it){
+  selected = it;
+  if(selBox){ scene.remove(selBox); selBox = null; }
+  const dis = !it;
+  $("delSel").disabled = dis; $("selH").disabled = dis; $("selR").disabled = dis;
+  if(it){
+    selBox = new THREE.BoxHelper(it.mesh, 0xffffff); scene.add(selBox);
+    $("selH").value = (it._kind === 'ring') ? it.z : it.h;
+    $("selR").value = it.r;
+  }
+}
+function newPos(){ return { x:+controls.target.x.toFixed(2), y:+controls.target.z.toFixed(2) }; }
+function addRing(){
+  const p = newPos(); const it = { x:p.x, y:p.y, z:1.0, r:0.45, _passed:false };
+  editRings.push(it); ringMesh(it); selectItem(it);
+}
+function addObstacle(){
+  const p = newPos(); const it = { x:p.x, y:p.y, r:0.18, h:1.6 };
+  editObstacles.push(it); obstacleMesh(it); selectItem(it);
+}
+function deleteSelected(){
+  if(!selected) return;
+  const arr = selected._kind === 'ring' ? editRings : editObstacles;
+  const meshes = selected._kind === 'ring' ? ringMeshes : obstacleMeshes;
+  let i = arr.indexOf(selected); if(i >= 0) arr.splice(i,1);
+  i = meshes.indexOf(selected.mesh); if(i >= 0) meshes.splice(i,1);
+  scene.remove(selected.mesh); selected.mesh.geometry.dispose();
+  selectItem(null);
+}
+function rebuildItemGeom(it){
+  it.mesh.geometry.dispose();
+  if(it._kind === 'ring'){ it.mesh.geometry = new THREE.TorusGeometry(it.r,0.05,16,40); it.mesh.position.set(it.x,it.z,it.y); }
+  else { it.mesh.geometry = new THREE.CylinderGeometry(it.r,it.r,it.h,22); it.mesh.position.set(it.x,it.h/2,it.y); }
+}
+function onSelHeight(v){
+  if(!selected) return; v = +v;
+  if(selected._kind === 'ring'){ selected.z = v; selected.mesh.position.y = v; }
+  else { selected.h = v; rebuildItemGeom(selected); }
+  if(selBox) selBox.update();
+}
+function onSelRadius(v){ if(!selected) return; selected.r = +v; rebuildItemGeom(selected); if(selBox) selBox.update(); }
+function edNDC(e){
+  const r = renderer.domElement.getBoundingClientRect();
+  return new THREE.Vector2(((e.clientX-r.left)/r.width)*2-1, -((e.clientY-r.top)/r.height)*2+1);
+}
+function onEdDown(e){
+  if(!editMode) return;
+  edRaycaster.setFromCamera(edNDC(e), camera);
+  const hits = edRaycaster.intersectObjects([...ringMeshes, ...obstacleMeshes], false);
+  if(hits.length){ selectItem(hits[0].object.userData.item); dragging = selected; controls.enabled = false; }
+}
+function onEdMove(e){
+  if(!editMode || !dragging) return;
+  edRaycaster.setFromCamera(edNDC(e), camera);
+  const pt = new THREE.Vector3();
+  if(edRaycaster.ray.intersectPlane(edGround.plane, pt)){
+    dragging.x = +pt.x.toFixed(3); dragging.y = +pt.z.toFixed(3);   // Three.z = Drohnen-y
+    if(dragging._kind === 'ring') dragging.mesh.position.set(dragging.x, dragging.z, dragging.y);
+    else dragging.mesh.position.set(dragging.x, dragging.h/2, dragging.y);
+    if(selBox) selBox.update();
+  }
+}
+function onEdUp(){ if(dragging){ dragging = null; controls.enabled = true; } }
+function genArr(name, items, keys){
+  if(!items.length) return name + ' = []';
+  const rows = items.map(it => '    {' + keys.map(k => `'${k}': ${(+it[k]).toFixed(2)}`).join(', ') + '},');
+  return name + ' = [\n' + rows.join('\n') + '\n]';
+}
+function applyEdits(){
+  let code = $("code").value;
+  const rl = genArr('RINGS', editRings, ['x','y','z','r']);
+  const ol = genArr('OBSTACLES', editObstacles, ['x','y','r','h']);
+  code = /RINGS\s*=\s*\[[\s\S]*?\]/.test(code) ? code.replace(/RINGS\s*=\s*\[[\s\S]*?\]/, rl) : (rl + '\n' + code);
+  code = /OBSTACLES\s*=\s*\[[\s\S]*?\]/.test(code) ? code.replace(/OBSTACLES\s*=\s*\[[\s\S]*?\]/, ol) : (ol + '\n' + code);
+  $("code").value = code;
+  runSim();
 }
 
 function initThree(){
@@ -692,6 +800,7 @@ function initThree(){
 
   drone = buildDrone(); scene.add(drone);
 
+  setupEditor();
   threeReady = true;
   window.addEventListener("resize", onResize);
   animate();
@@ -834,6 +943,15 @@ $("play").addEventListener("click", ()=>play(!playing));
 $("scrub").addEventListener("input", e=>{ play(false); cur=parseInt(e.target.value,10)||0; render(); });
 $("speed").addEventListener("change", ()=>{ lastTs=performance.now(); });
 $("reset").addEventListener("click", ()=>{ $("code").value = DEFAULT_CODE; });
+
+// Parcours-Editor
+$("editToggle").addEventListener("click", toggleEditMode);
+$("addRing").addEventListener("click", addRing);
+$("addObs").addEventListener("click", addObstacle);
+$("delSel").addEventListener("click", deleteSelected);
+$("selH").addEventListener("input", e => onSelHeight(e.target.value));
+$("selR").addEventListener("input", e => onSelRadius(e.target.value));
+$("applyEdit").addEventListener("click", applyEdits);
 
 const DEFAULT_CODE = $("code").value;
 initThree();   // 3D-Szene starten (läuft auch ohne Simulation)
