@@ -74,36 +74,50 @@
     <div class="col">
       <div class="panel">
         <div class="ttl">FLUGCODE  (Python)</div>
-        <textarea id="code" spellcheck="false"># Ring-Parcours: durch die Ringe fliegen. Parcours HIER aenderbar (kein HTML noetig!):
-#   RINGS:     x=vorne, y=links, z=Hoehe(Mittelpunkt), r=Radius  -> durchfliegen
-#   OBSTACLES: x, y, r, h  -> Saeulen, die der Multiranger erkennt (zum Ausweichen)
-#   Steuerung: mc.start_linear_motion(vx, vy, vz) + time.sleep(t);  Position: mc.x/mc.y/mc.z
+        <textarea id="code" spellcheck="false"># === GUTER PARCOURS ===  durch die Ringe fliegen + um die Saeulen herum.
+# Alles HIER aenderbar (kein HTML noetig):
+#   RINGS     x=vorne, y=links, z=Hoehe, r=Radius  -> hindurchfliegen (gruen = geschafft)
+#   OBSTACLES x, y, r, h                            -> rote Saeulen (Multiranger erkennt sie)
+#   Steuerung: mc.start_linear_motion(vx,vy,vz)+time.sleep(t);  Position: mc.x/mc.y/mc.z
 RINGS = [
-    {'x': 1.5, 'y': 0.0,  'z': 1.0, 'r': 0.45},
-    {'x': 3.0, 'y': 0.6,  'z': 0.7, 'r': 0.45},
-    {'x': 4.5, 'y': -0.5, 'z': 1.2, 'r': 0.45},
+    {'x': 1.2, 'y':  0.0, 'z': 1.2, 'r': 0.45},   # 1: mittig, hoch
+    {'x': 2.8, 'y': -0.7, 'z': 0.8, 'r': 0.45},   # 2: rechts, tief
+    {'x': 4.4, 'y':  0.7, 'z': 1.4, 'r': 0.45},   # 3: links, ganz hoch
+    {'x': 6.0, 'y':  0.0, 'z': 0.9, 'r': 0.45},   # 4: mittig, Ziel
 ]
-OBSTACLES = []          # z. B. [{'x': 2.2, 'y': 0.0, 'r': 0.16, 'h': 1.6}] fuer Saeulen
+OBSTACLES = [
+    {'x': 2.0, 'y': -0.35, 'r': 0.18, 'h': 2.2},  # Saeule zwischen Ring 1 & 2
+    {'x': 3.6, 'y':  0.0,  'r': 0.18, 'h': 2.2},  # Saeule zwischen Ring 2 & 3
+    {'x': 5.2, 'y':  0.35, 'r': 0.18, 'h': 2.2},  # Saeule zwischen Ring 3 & 4
+]
 
-START_HEIGHT = 1.0
-SPEED = 0.6
+START_HEIGHT = 1.2
+SPEED = 0.7
 
 def flight(mc, mr):
     import time
-    def goto(tx, ty, tz, tol=0.06):                    # fliegt proportional zum Zielpunkt
+    # Geplanter Pfad: durch jeden Ring + Wegpunkte, die um die Saeulen herumfuehren.
+    PATH = [
+        (1.2,  0.0,  1.2),   # Ring 1
+        (2.0,  0.25, 1.0),   # links an Saeule 1 vorbei
+        (2.8, -0.7,  0.8),   # Ring 2
+        (3.15, 0.45, 1.1),   # frueh hochziehen, neben Saeule 2
+        (4.4,  0.7,  1.4),   # Ring 3
+        (5.3,  0.85, 1.2),   # aussen an Saeule 3 vorbei
+        (6.0,  0.0,  0.9),   # Ring 4 (Ziel)
+        (6.7,  0.0,  0.9),   # hinausfliegen
+    ]
+    def goto(tx, ty, tz, tol=0.07):                    # fliegt proportional zum Wegpunkt
         while True:
             dx, dy, dz = tx - mc.x, ty - mc.y, tz - mc.z
             dist = (dx*dx + dy*dy + dz*dz) ** 0.5
             if dist < tol:
                 break
-            k = min(SPEED, dist * 2.0) / dist          # Richtung * gedeckelte Geschwindigkeit
+            k = min(SPEED, dist * 1.6) / dist
             mc.start_linear_motion(dx*k, dy*k, dz*k)
             time.sleep(0.1)
-    for g in RINGS:                                    # nacheinander durch jeden Ring
-        goto(g['x'], g['y'], g['z'])
-    if RINGS:                                           # durch den letzten Ring hinausfliegen
-        last = RINGS[-1]
-        goto(last['x'] + 0.7, last['y'], last['z'])
+    for (x, y, z) in PATH:
+        goto(x, y, z)
     mc.stop()
 </textarea>
         <div class="btnrow">
