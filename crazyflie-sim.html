@@ -82,6 +82,7 @@
         <textarea id="code" spellcheck="false"># === PARCOURS ===  durch die Ringe fliegen.
 # Tipp: oben "✎ Parcours bearbeiten" -> Ringe/Saeulen mit der MAUS ziehen, dann "Uebernehmen".
 # Oder hier im Code: x=vorne, y=links, z=Hoehe, r=Radius (OBSTACLES zusaetzlich h=Hoehe).
+# Auch echter cflib-Code laeuft hier: import cflib... ; with MotionCommander(scf) as mc: mc.forward(...)
 RINGS = [
     {'x': 1.2, 'y':  0.0, 'z': 1.2, 'r': 0.45},   # 1: mittig, hoch
     {'x': 2.8, 'y': -0.7, 'z': 0.8, 'r': 0.45},   # 2: rechts, tief
@@ -346,6 +347,7 @@ class Multiranger:
         return round(best, 3)
 
     def _dir(self, fwd, left):
+        if self.mc is None: return (0.0, 0.0)
         c, s = math.cos(self.mc.yaw), math.sin(self.mc.yaw)
         return (fwd*c - left*s, fwd*s + left*c)
 
@@ -394,7 +396,65 @@ def _norm_rings(raw):
                         'r': float(o[3]) if len(o) > 3 else 0.4})
     return out
 
+# ── cflib-Kompatibilitaet: echter Crazyflie-Code laeuft auf der Sim-Drohne ──
+_ACTIVE_MC = None
+_RUN_OBSTACLES = []
+
+class _Dummy:
+    def __getattr__(self, n): return _Dummy()
+    def __call__(self, *a, **k): return _Dummy()
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+    def __iter__(self): return iter(())
+
+class _ShimMC(MotionCommander):
+    def __init__(self, crazyflie=None, default_height=0.3, default_velocity=0.2, **k):
+        super().__init__(default_height=default_height, default_velocity=default_velocity)
+        global _ACTIVE_MC
+        _ACTIVE_MC = self
+
+class _ShimMR(Multiranger):
+    def __init__(self, crazyflie=None, *a, **k):
+        super().__init__(mc=None, obstacles=_RUN_OBSTACLES)
+    @property
+    def mc(self): return _ACTIVE_MC
+    @mc.setter
+    def mc(self, v): pass
+
+def _install_cflib_shim():
+    import sys, types
+    def M(name):
+        m = types.ModuleType(name); sys.modules[name] = m; return m
+    cflib = M('cflib')
+    crtp = M('cflib.crtp'); crtp.init_drivers = lambda *a, **k: None; cflib.crtp = crtp
+    cz = M('cflib.crazyflie'); cz.Crazyflie = _Dummy; cflib.crazyflie = cz
+    sc = M('cflib.crazyflie.syncCrazyflie')
+    class SyncCrazyflie:
+        def __init__(self, uri=None, cf=None, *a, **k): pass
+        def __enter__(self): return _Dummy()
+        def __exit__(self, *a): return False
+        def open_link(self): pass
+        def close_link(self): pass
+    sc.SyncCrazyflie = SyncCrazyflie; cz.syncCrazyflie = sc
+    lg = M('cflib.crazyflie.log')
+    class LogConfig:
+        def __init__(self, *a, **k): pass
+        def add_variable(self, *a, **k): pass
+    lg.LogConfig = LogConfig; cz.log = lg
+    syl = M('cflib.crazyflie.syncLogger')
+    class SyncLogger:
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return iter(())
+        def __exit__(self, *a): return False
+    syl.SyncLogger = SyncLogger; cz.syncLogger = syl
+    pos = M('cflib.positioning'); cflib.positioning = pos
+    mcm = M('cflib.positioning.motion_commander'); mcm.MotionCommander = _ShimMC; pos.motion_commander = mcm
+    ut = M('cflib.utils'); cflib.utils = ut
+    mrm = M('cflib.utils.multiranger'); mrm.Multiranger = _ShimMR; ut.multiranger = mrm
+
 def _run():
+    global _ACTIVE_MC, _RUN_OBSTACLES
+    _ACTIVE_MC = None
     try:
         obstacles = json.loads(OBSTACLES_JSON) if 'OBSTACLES_JSON' in globals() and OBSTACLES_JSON else []
     except Exception:
@@ -403,33 +463,38 @@ def _run():
         rings = json.loads(RINGS_JSON) if 'RINGS_JSON' in globals() and RINGS_JSON else []
     except Exception:
         rings = []
+    _RUN_OBSTACLES = obstacles
+    _install_cflib_shim()
+    import time as _t
+    _t.sleep = lambda secs=0.0: (_ACTIVE_MC._advance(secs) if _ACTIVE_MC is not None else None)  # treibt die Sim voran
     ns = {'MotionCommander': MotionCommander, 'Multiranger': Multiranger}
     try:
         exec(USER_CODE, ns)
-        # Hindernisse aus dem Editor-Code (OBSTACLES = [...]) haben Vorrang vor dem Standard
+        # Hindernisse/Ringe aus dem Editor-Code (OBSTACLES/RINGS = [...]) haben Vorrang
         if isinstance(ns.get('OBSTACLES'), (list, tuple)):
-            obstacles = _norm_obstacles(ns['OBSTACLES'])
+            obstacles = _norm_obstacles(ns['OBSTACLES']); _RUN_OBSTACLES = obstacles
         if isinstance(ns.get('RINGS'), (list, tuple)):
             rings = _norm_rings(ns['RINGS'])
         fn = ns.get('flight') or ns.get('run_parkour') or ns.get('run') or ns.get('main')
-        if fn is None:
-            raise RuntimeError("Keine Funktion gefunden. Bitte 'def flight(mc, mr):' definieren.")
-        height = ns.get('START_HEIGHT', 0.5)
-        speed  = ns.get('FLY_SPEED', ns.get('SPEED', 0.3))
-        mc = MotionCommander(default_height=height, default_velocity=speed)
-        mr = Multiranger(mc, obstacles)
-        import time as _t
-        _t.sleep = lambda secs=0.0: mc._advance(secs)   # time.sleep() treibt die Sim voran
-        nargs = len(inspect.signature(fn).parameters)
-        if nargs >= 2:
-            fn(mc, mr)
-        elif nargs == 1:
-            fn(mc)
+        if fn is not None:
+            height = ns.get('START_HEIGHT', 0.5)
+            speed  = ns.get('FLY_SPEED', ns.get('SPEED', 0.3))
+            mc = MotionCommander(default_height=height, default_velocity=speed)
+            _ACTIVE_MC = mc
+            mr = Multiranger(mc, obstacles)
+            nargs = len(inspect.signature(fn).parameters)
+            if nargs >= 2: fn(mc, mr)
+            elif nargs == 1: fn(mc)
+            else: fn()
+            if mc.z > 1e-3: mc.land()
+            traj = mc.traj
+        elif _ACTIVE_MC is not None:
+            # cflib-Stil: der Code hat selbst eine Drohne erstellt und geflogen
+            if _ACTIVE_MC.z > 1e-3: _ACTIVE_MC.land()
+            traj = _ACTIVE_MC.traj
         else:
-            fn()
-        if mc.z > 1e-3:
-            mc.land()
-        return json.dumps({'ok': True, 'traj': mc.traj, 'obstacles': obstacles, 'rings': rings})
+            raise RuntimeError("Keine 'flight(mc, mr)'-Funktion gefunden und kein MotionCommander erstellt.")
+        return json.dumps({'ok': True, 'traj': traj, 'obstacles': obstacles, 'rings': rings})
     except Exception as e:
         msg = ''.join(traceback.format_exception_only(type(e), e)).strip()
         return json.dumps({'ok': False, 'error': msg, 'trace': traceback.format_exc()})

@@ -14,3 +14,21 @@ Flugcode (Python, im Stil der cflib-`MotionCommander`) direkt im Browser ausfüh
 
 ## Nutzung
 `index.html` öffnen (oder die Live-URL). Flugcode links eingeben → **▶ Simulieren**.
+
+## Echter cflib-Code einfügbar
+Typischer Crazyflie-Code läuft direkt – ein Kompatibilitäts-Shim leitet ihn auf die Sim-Drohne um:
+
+```python
+import cflib.crtp
+from cflib.crazyflie import Crazyflie
+from cflib.crazyflie.syncCrazyflie import SyncCrazyflie
+from cflib.positioning.motion_commander import MotionCommander
+from cflib.utils.multiranger import Multiranger
+
+with SyncCrazyflie(URI, cf=Crazyflie()) as scf:
+    with Multiranger(scf) as mr:
+        with MotionCommander(scf, default_height=1.0) as mc:
+            mc.forward(0.5)
+```
+
+Hinweise: kein echtes pybullet/keine Hardware; `time.sleep()` treibt die Simulation voran; der Multiranger erkennt die Säulen (`OBSTACLES`).
