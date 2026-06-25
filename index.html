@@ -192,6 +192,7 @@ def flight(mc, mr):
           <button id="play">▶ Abspielen</button>
           <input type="range" id="scrub" min="0" max="0" value="0">
           <label class="hint"><input type="checkbox" id="sensChk"> 📡 Sensoren</label>
+          <label class="hint"><input type="checkbox" id="collChk" checked> 🧱 Kollision</label>
           <label class="hint">Tempo
             <select id="speed">
               <option value="0.5">0.5×</option>
@@ -213,7 +214,7 @@ def flight(mc, mr):
       <code>&lt;iframe src="https://&lt;dein-user&gt;.github.io/&lt;repo&gt;/crazyflie-sim.html" width="100%" height="900" style="border:0"&gt;&lt;/iframe&gt;</code>
       <p class="hint" style="margin:8px 0 0">In DokuWiki braucht es dafür das <b>iframe</b>-Plugin (oder erlaubtes Roh-HTML). Reines Verlinken funktioniert immer.</p>
     </details>
-    <p style="margin:8px 0 0" class="hint">Kinematisches Modell (keine echte pybullet-Dynamik): Position wird aus den Geschwindigkeits-Befehlen integriert. Die <b style="color:#e03b3b">roten Säulen</b> sind Hindernisse – der <code>Multiranger</code> liefert die Distanz (<code>mr.front/back/left/right</code> in m, sonst <code>None</code>). Kollisionen werden nicht erzwungen: weicht der Code nicht aus, fliegt die Drohne hindurch. Die <b style="color:#b32fc4">Ringe</b> sind Tore zum Durchfliegen – sie werden <b style="color:#138a4a">grün</b>, sobald die Drohne hindurchgeflogen ist. Die <b style="color:#c77f00">orangen Tische</b> sind Box-Hindernisse, die nur im Bereich der Platte (zwischen <code>clearance</code> und <code>h</code>) blockieren – man kann also drunter durch oder drüber weg fliegen; <code>mr.up</code> meldet die Tischplatte darüber. Der <b style="color:#1f7ac2">Raum</b> (Wände + Decke) wird über <code>ROOM = {'length':…, 'width':…, 'height':…}</code> definiert (oder im Editor per L/B/H) – der <code>Multiranger</code> erkennt die Wände in <code>mr.front/back/left/right</code> und die Decke in <code>mr.up</code>; <code>ROOM = None</code> schaltet ihn ab.</p>
+    <p style="margin:8px 0 0" class="hint">Kinematisches Modell (keine echte pybullet-Dynamik): Position wird aus den Geschwindigkeits-Befehlen integriert. Die <b style="color:#e03b3b">roten Säulen</b> sind Hindernisse – der <code>Multiranger</code> liefert die Distanz (<code>mr.front/back/left/right</code> in m, sonst <code>None</code>). Bei aktiver <b>🧱 Kollision</b> (Standard) stoppt die Drohne an Hindernissen, Tischen und Wänden und kann nicht hindurchfliegen – Haken entfernen, um frei hindurchzufliegen. Die <b style="color:#b32fc4">Ringe</b> sind Tore zum Durchfliegen – sie werden <b style="color:#138a4a">grün</b>, sobald die Drohne hindurchgeflogen ist. Die <b style="color:#c77f00">orangen Tische</b> sind Box-Hindernisse, die nur im Bereich der Platte (zwischen <code>clearance</code> und <code>h</code>) blockieren – man kann also drunter durch oder drüber weg fliegen; <code>mr.up</code> meldet die Tischplatte darüber. Der <b style="color:#1f7ac2">Raum</b> (Wände + Decke) wird über <code>ROOM = {'length':…, 'width':…, 'height':…}</code> definiert (oder im Editor per L/B/H) – der <code>Multiranger</code> erkennt die Wände in <code>mr.front/back/left/right</code> und die Decke in <code>mr.up</code>; <code>ROOM = None</code> schaltet ihn ab.</p>
   </div>
 </div>
 
@@ -232,7 +233,7 @@ class _LimitError(Exception):
 
 class MotionCommander:
     """Kinematische Nachbildung der cflib MotionCommander (Body-Frame, yaw-aware)."""
-    MAX_POINTS = 200000
+    MAX_POINTS = 60000
 
     def __init__(self, default_height=0.5, default_velocity=0.3):
         self.default_height = float(default_height)
@@ -250,7 +251,8 @@ class MotionCommander:
 
     def _record(self, vx, vy, vz):
         if len(self.traj) > self.MAX_POINTS:
-            raise _LimitError("Zu viele Simulationsschritte - vermutlich eine Endlosschleife.")
+            raise _LimitError("Zu viele Simulationsschritte - die Drohne haengt vermutlich an einem "
+                              "Hindernis fest (Kollision aktiv) oder es ist eine Endlosschleife.")
         self.traj.append({
             't': round(self.t, 3),
             'x': round(self.x, 5), 'y': round(self.y, 5), 'z': round(self.z, 5),
@@ -271,9 +273,20 @@ class MotionCommander:
         sx, sy, sz = dx / n, dy / n, dz / n
         vx, vy, vz = sx / self.dt, sy / self.dt, sz / self.dt
         for _ in range(n):
-            self.x += sx; self.y += sy; self.z += sz
+            self._step_to(sx, sy, sz)
             self.t += self.dt
             self._record(vx, vy, vz)
+
+    def _step_to(self, dx, dy, dz):
+        """Bewegt um (dx,dy,dz) – stoppt aber pro Achse an Hindernissen/Tischen/Waenden."""
+        if not _RUN_COLLIDE:
+            self.x += dx; self.y += dy; self.z = max(0.0, self.z + dz); return
+        nx, ny, nz = self.x, self.y, self.z
+        if not _collides(nx + dx, ny, nz): nx += dx
+        if not _collides(nx, ny + dy, nz): ny += dy
+        tz = max(0.0, nz + dz)
+        if not _collides(nx, ny, tz):      nz = tz
+        self.x, self.y, self.z = nx, ny, nz
 
     def _body(self, fwd, left):
         c, s = math.cos(self.yaw), math.sin(self.yaw)
@@ -320,9 +333,7 @@ class MotionCommander:
             c, s = math.cos(self.yaw), math.sin(self.yaw)
             wx = vx*c - vy*s
             wy = vx*s + vy*c
-            self.x += wx*self.dt
-            self.y += wy*self.dt
-            self.z = max(0.0, self.z + vz*self.dt)
+            self._step_to(wx*self.dt, wy*self.dt, vz*self.dt)
             self.yaw += self._yawrate*self.dt
             self.t += self.dt
             self._record(wx, wy, vz)
@@ -528,6 +539,28 @@ _ACTIVE_MC = None
 _RUN_OBSTACLES = []
 _RUN_TABLES = []
 _RUN_ROOM = None
+_RUN_COLLIDE = True
+_DRONE_R = 0.06   # halbe Drohnenbreite [m] – Sicherheitsabstand fuer Kollision
+
+def _collides(x, y, z):
+    """True, wenn die Drohne an Position (x,y,z) ein Hindernis/Tisch/Wand beruehrt."""
+    if z < 0.0:
+        return True
+    for o in _RUN_OBSTACLES:                       # Saeulen (Zylinder)
+        if z <= o.get('h', 99):
+            rr = o['r'] + _DRONE_R
+            if (x - o['x'])**2 + (y - o['y'])**2 < rr*rr:
+                return True
+    for t in _RUN_TABLES:                          # Tische (Box, nur Plattenbereich)
+        if t['clearance'] - 1e-6 <= z <= t['h'] + 1e-6:
+            if abs(x - t['x']) < t['w']/2 + _DRONE_R and abs(y - t['y']) < t['d']/2 + _DRONE_R:
+                return True
+    r = _RUN_ROOM                                  # Raumwaende + Decke
+    if r:
+        if x < r['xmin'] + _DRONE_R or x > r['xmax'] - _DRONE_R: return True
+        if y < r['ymin'] + _DRONE_R or y > r['ymax'] - _DRONE_R: return True
+        if z > r['h'] - _DRONE_R: return True
+    return False
 
 class _Dummy:
     def __getattr__(self, n): return _Dummy()
@@ -582,8 +615,12 @@ def _install_cflib_shim():
     mrm = M('cflib.utils.multiranger'); mrm.Multiranger = _ShimMR; ut.multiranger = mrm
 
 def _run():
-    global _ACTIVE_MC, _RUN_OBSTACLES, _RUN_TABLES, _RUN_ROOM
+    global _ACTIVE_MC, _RUN_OBSTACLES, _RUN_TABLES, _RUN_ROOM, _RUN_COLLIDE
     _ACTIVE_MC = None
+    try:
+        _RUN_COLLIDE = bool(json.loads(COLLIDE_JSON)) if 'COLLIDE_JSON' in globals() else True
+    except Exception:
+        _RUN_COLLIDE = True
     try:
         obstacles = json.loads(OBSTACLES_JSON) if 'OBSTACLES_JSON' in globals() and OBSTACLES_JSON else []
     except Exception:
@@ -730,6 +767,7 @@ async function runSim(){
     pyodide.globals.set("TABLES_JSON", JSON.stringify(TABLES));
     const roomOn = !$("roomChk") || $("roomChk").checked;
     pyodide.globals.set("ROOM_JSON", JSON.stringify(roomOn ? roomCfg : null));
+    pyodide.globals.set("COLLIDE_JSON", JSON.stringify(!$("collChk") || $("collChk").checked));
     const out = JSON.parse(await pyodide.runPythonAsync(HARNESS_PY));
     if(!out.ok){
       setStatus("Fehler im Flugcode.", "err");
@@ -1434,6 +1472,7 @@ $("speed").addEventListener("change", ()=>{ lastTs=performance.now(); });
 $("reset").addEventListener("click", ()=>{ $("code").value = DEFAULT_CODE; });
 $("share").addEventListener("click", shareLink);
 $("sensChk").addEventListener("change", ()=>{ if(traj.length) render(); });
+$("collChk").addEventListener("change", runSim);   // Kollision an/aus -> neu rechnen
 
 // Parcours-Editor
 $("editToggle").addEventListener("click", toggleEditMode);
