@@ -6,68 +6,73 @@
 <title>Crazyflie Web-Simulator</title>
 <style>
   :root{
-    --bg:#0f1218; --card:#1a2035; --edge:#2d3a55; --edge2:#3d4a65;
-    --blue:#4fc3f7; --grn:#69f0ae; --org:#ffd740; --prp:#e040fb;
-    --dim:#7986a0; --wht:#fff; --red:#ff5252;
+    --bg:#e9edf4; --card:#ffffff; --edge:#d4dbe7; --edge2:#c3ccdb;
+    --screen:#f6f8fc;                 /* helle Flaechen: Editor, 3D-Ansicht, Diagramm */
+    --blue:#1769b3; --grn:#138a4a; --org:#bf7d00; --prp:#a72fbe;
+    --dim:#5d6b82; --ink:#1b2430; --wht:#fff; --red:#d33;
   }
   *{box-sizing:border-box}
   html,body{margin:0;height:100%}
   body{
-    background:var(--bg); color:var(--wht);
+    background:var(--bg); color:var(--ink);
     font-family:"Cascadia Code",Consolas,"Courier New",monospace;
-    font-size:13px; line-height:1.45;
+    font-size:13px; line-height:1.5;
   }
-  .wrap{display:flex; flex-direction:column; min-height:100%; padding:12px; gap:12px}
-  h1{font-size:15px; color:var(--blue); margin:0; font-weight:700; letter-spacing:.5px}
+  .wrap{display:flex; flex-direction:column; min-height:100%; padding:14px; gap:14px; max-width:1500px; margin:0 auto; width:100%}
+  h1{font-size:16px; color:var(--blue); margin:0; font-weight:700; letter-spacing:.4px}
   h1 small{color:var(--dim); font-weight:400; font-size:11px}
-  .main{display:flex; gap:12px; flex-wrap:wrap; align-items:stretch}
-  .col{flex:1 1 420px; min-width:320px; display:flex; flex-direction:column; gap:8px}
-  .panel{background:var(--card); border:1px solid var(--edge); border-radius:8px; padding:10px}
-  .panel > .ttl{color:var(--blue); font-size:11px; letter-spacing:1px; margin-bottom:6px}
+  .main{display:flex; gap:14px; flex-wrap:wrap; align-items:stretch}
+  .col{flex:1 1 420px; min-width:320px; display:flex; flex-direction:column; gap:10px}
+  .panel{background:var(--card); border:1px solid var(--edge); border-radius:10px; padding:12px; box-shadow:0 1px 3px rgba(20,40,80,.06)}
+  .panel > .ttl{color:var(--blue); font-size:11.5px; font-weight:700; letter-spacing:1px; margin-bottom:8px}
   textarea{
     width:100%; height:340px; resize:vertical;
-    background:#0d1424; color:#e6edf6; border:1px solid var(--edge2); border-radius:6px;
+    background:var(--screen); color:var(--ink); border:1px solid var(--edge2); border-radius:8px;
     font-family:inherit; font-size:12.5px; padding:10px; tab-size:4; white-space:pre;
   }
-  .btnrow{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px}
+  .btnrow{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px}
   button{
-    background:#1e2a42; color:var(--wht); border:1px solid var(--edge2);
-    border-radius:6px; padding:7px 14px; font-family:inherit; font-size:12.5px; cursor:pointer;
+    background:#eef2f8; color:var(--ink); border:1px solid var(--edge2);
+    border-radius:7px; padding:7px 14px; font-family:inherit; font-size:12.5px; cursor:pointer;
   }
   button:hover:not(:disabled){border-color:var(--blue); color:var(--blue)}
   button:disabled{opacity:.45; cursor:default}
-  button.primary{background:var(--blue); color:#06121c; border-color:var(--blue); font-weight:700}
-  button.primary:hover:not(:disabled){filter:brightness(1.1); color:#06121c}
+  button.primary{background:var(--blue); color:#fff; border-color:var(--blue); font-weight:700}
+  button.primary:hover:not(:disabled){filter:brightness(1.08); color:#fff}
   #status{color:var(--dim); font-size:11.5px}
   #status.err{color:var(--red)}
   #status.ok{color:var(--grn)}
   .err-box{
-    display:none; margin-top:8px; background:#2a1115; border:1px solid #5a2a2a; border-radius:6px;
-    padding:8px 10px; color:#ffb3b3; font-size:12px; white-space:pre-wrap; max-height:160px; overflow:auto;
+    display:none; margin-top:8px; background:#fdecec; border:1px solid #f1b4b4; border-radius:6px;
+    padding:8px 10px; color:#a11; font-size:12px; white-space:pre-wrap; max-height:160px; overflow:auto;
   }
-  #scene{width:100%; height:460px; background:#0d1424; border:1px solid var(--edge2); border-radius:6px; overflow:hidden; position:relative; cursor:grab}
+  #scene{width:100%; height:460px; background:var(--screen); border:1px solid var(--edge2); border-radius:8px; overflow:hidden; position:relative; cursor:grab}
   #scene:active{cursor:grabbing}
   #scene canvas{display:block}
-  .readouts{display:grid; grid-template-columns:repeat(4,1fr); gap:6px 10px; margin-top:8px}
-  .ro{background:#0d1424; border:1px solid var(--edge); border-radius:6px; padding:6px 8px}
+  .readouts{display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:10px}
+  .ro{background:var(--screen); border:1px solid var(--edge); border-radius:8px; padding:7px 9px}
   .ro .k{color:var(--dim); font-size:10px; letter-spacing:.5px}
   .ro .v{font-size:15px; font-weight:700; color:var(--grn)}
   .ro .v small{font-size:10px; color:var(--dim); font-weight:400}
-  #speedChart{width:100%; height:120px; background:#0d1424; border:1px solid var(--edge2); border-radius:6px; display:block; margin-top:8px}
-  .scorebar{margin-top:8px; padding:7px 11px; background:#0d1424; border:1px solid var(--edge); border-radius:6px; font-size:12.5px; color:var(--dim)}
+  #speedChart{width:100%; height:120px; background:var(--screen); border:1px solid var(--edge2); border-radius:8px; display:block; margin-top:10px}
+  .scorebar{margin-top:10px; padding:8px 12px; background:var(--screen); border:1px solid var(--edge); border-radius:8px; font-size:12.5px; color:var(--dim)}
   .scorebar b{color:var(--grn)} .scorebar .best{color:var(--org)} .scorebar .new{color:#fff; background:var(--grn); border-radius:4px; padding:1px 6px}
-  .editbar{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:8px}
-  .editbar #editTools{display:inline-flex; gap:8px; align-items:center; flex-wrap:wrap}
+  .editbar{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-top:10px}
+  .editbar #editTools{display:inline-flex; gap:8px; align-items:center; flex-wrap:wrap; background:var(--screen); border:1px solid var(--edge); border-radius:8px; padding:7px 9px}
+  #editTools > span{display:inline-flex; gap:8px; align-items:center; flex-wrap:wrap}
+  #tableTools, #editTools .roomgrp{border-left:1px solid var(--edge2); padding-left:9px}
   .editbar input[type=range]{width:88px; vertical-align:middle}
-  .controls{display:flex; gap:10px; align-items:center; margin-top:10px; flex-wrap:wrap}
+  .editbar input[type=number]{background:#fff; color:var(--ink); border:1px solid var(--edge2); border-radius:5px; padding:3px 4px; font-family:inherit}
+  .controls{display:flex; gap:10px; align-items:center; margin-top:12px; flex-wrap:wrap}
   .controls input[type=range]{flex:1 1 160px}
-  .controls select{background:#0d1424; color:var(--wht); border:1px solid var(--edge2); border-radius:6px; padding:4px 6px; font-family:inherit}
-  .legend{color:var(--dim); font-size:10.5px; margin-top:6px}
+  .controls select{background:#fff; color:var(--ink); border:1px solid var(--edge2); border-radius:6px; padding:4px 6px; font-family:inherit}
+  .legend{color:var(--dim); font-size:10.5px; margin-top:7px}
   .legend b{color:var(--blue)}
-  .foot{color:var(--dim); font-size:11px; border-top:1px solid var(--edge); padding-top:8px}
-  .foot code{background:#0d1424; border:1px solid var(--edge); border-radius:4px; padding:1px 5px; color:#cfe3ff}
+  .foot{color:var(--dim); font-size:11px; border-top:1px solid var(--edge); padding-top:10px}
+  .foot code{background:var(--screen); border:1px solid var(--edge); border-radius:4px; padding:1px 5px; color:#0d3a66}
   details summary{cursor:pointer; color:var(--blue)}
   .hint{color:var(--dim)}
+  .editbar label.hint{display:inline-flex; align-items:center; gap:4px}
 </style>
 </head>
 <body>
@@ -157,7 +162,7 @@ def flight(mc, mr):
               <label class="hint">Durchflug <input id="tblC" type="number" min="0" max="2.4" step="0.05" style="width:52px"></label>
             </span>
             <label class="hint"><input type="checkbox" id="snapChk" checked> Raster 0,25 m</label>
-            <span class="hint" style="border-left:1px solid #2d3a55;padding-left:8px">
+            <span class="roomgrp">
               <label class="hint"><input type="checkbox" id="roomChk" checked> Raum</label>
               <label class="hint">L <input id="roomL" type="number" min="1" max="20" step="0.1" style="width:52px"></label>
               <label class="hint">B <input id="roomW" type="number" min="1" max="20" step="0.1" style="width:52px"></label>
@@ -180,7 +185,7 @@ def flight(mc, mr):
         </div>
 
         <canvas id="speedChart"></canvas>
-        <div class="legend"><b style="color:#ffd740">— horizontal</b> &nbsp; <b style="color:#4fc3f7">— vertikal</b> &nbsp;·&nbsp; Geschwindigkeit über Zeit (m/s)</div>
+        <div class="legend"><b style="color:#e08a00">— horizontal</b> &nbsp; <b style="color:#1f8ad4">— vertikal</b> &nbsp;·&nbsp; Geschwindigkeit über Zeit (m/s)</div>
         <div id="score" class="scorebar">–</div>
 
         <div class="controls">
@@ -208,7 +213,7 @@ def flight(mc, mr):
       <code>&lt;iframe src="https://&lt;dein-user&gt;.github.io/&lt;repo&gt;/crazyflie-sim.html" width="100%" height="900" style="border:0"&gt;&lt;/iframe&gt;</code>
       <p class="hint" style="margin:8px 0 0">In DokuWiki braucht es dafür das <b>iframe</b>-Plugin (oder erlaubtes Roh-HTML). Reines Verlinken funktioniert immer.</p>
     </details>
-    <p style="margin:8px 0 0" class="hint">Kinematisches Modell (keine echte pybullet-Dynamik): Position wird aus den Geschwindigkeits-Befehlen integriert. Die <b style="color:#ff5252">roten Säulen</b> sind Hindernisse – der <code>Multiranger</code> liefert die Distanz (<code>mr.front/back/left/right</code> in m, sonst <code>None</code>). Kollisionen werden nicht erzwungen: weicht der Code nicht aus, fliegt die Drohne hindurch. Die <b style="color:#e040fb">Ringe</b> sind Tore zum Durchfliegen – sie werden <b style="color:#69f0ae">grün</b>, sobald die Drohne hindurchgeflogen ist. Die <b style="color:#ffb74d">orangen Tische</b> sind Box-Hindernisse, die nur im Bereich der Platte (zwischen <code>clearance</code> und <code>h</code>) blockieren – man kann also drunter durch oder drüber weg fliegen; <code>mr.up</code> meldet die Tischplatte darüber. Der <b style="color:#4fc3f7">Raum</b> (Wände + Decke) wird über <code>ROOM = {'length':…, 'width':…, 'height':…}</code> definiert (oder im Editor per L/B/H) – der <code>Multiranger</code> erkennt die Wände in <code>mr.front/back/left/right</code> und die Decke in <code>mr.up</code>; <code>ROOM = None</code> schaltet ihn ab.</p>
+    <p style="margin:8px 0 0" class="hint">Kinematisches Modell (keine echte pybullet-Dynamik): Position wird aus den Geschwindigkeits-Befehlen integriert. Die <b style="color:#e03b3b">roten Säulen</b> sind Hindernisse – der <code>Multiranger</code> liefert die Distanz (<code>mr.front/back/left/right</code> in m, sonst <code>None</code>). Kollisionen werden nicht erzwungen: weicht der Code nicht aus, fliegt die Drohne hindurch. Die <b style="color:#b32fc4">Ringe</b> sind Tore zum Durchfliegen – sie werden <b style="color:#138a4a">grün</b>, sobald die Drohne hindurchgeflogen ist. Die <b style="color:#c77f00">orangen Tische</b> sind Box-Hindernisse, die nur im Bereich der Platte (zwischen <code>clearance</code> und <code>h</code>) blockieren – man kann also drunter durch oder drüber weg fliegen; <code>mr.up</code> meldet die Tischplatte darüber. Der <b style="color:#1f7ac2">Raum</b> (Wände + Decke) wird über <code>ROOM = {'length':…, 'width':…, 'height':…}</code> definiert (oder im Editor per L/B/H) – der <code>Multiranger</code> erkennt die Wände in <code>mr.front/back/left/right</code> und die Decke in <code>mr.up</code>; <code>ROOM = None</code> schaltet ihn ab.</p>
   </div>
 </div>
 
@@ -853,7 +858,7 @@ function buildDrone(){
 
 function obstacleMesh(it){
   const mat = new THREE.MeshStandardMaterial({
-    color:0xff5252, transparent:true, opacity:0.42, metalness:0.1, roughness:0.7 });
+    color:0xf03b3b, transparent:true, opacity:0.55, metalness:0.1, roughness:0.7 });
   const cyl = new THREE.Mesh(new THREE.CylinderGeometry(it.r, it.r, it.h, 22), mat);
   cyl.position.set(it.x, it.h/2, it.y);   // Three: X=vorne, Y=hoch, Z=links
   cyl.userData = { kind:'obstacle', item:it }; it.mesh = cyl; it._kind = 'obstacle';
@@ -873,9 +878,9 @@ function disposeObj3D(obj){ obj.traverse(o => { if(o.geometry) o.geometry.dispos
 function tableMesh(it){
   const g = new THREE.Group();
   const matTop = new THREE.MeshStandardMaterial({
-    color:0xffb74d, transparent:true, opacity:0.6, metalness:0.1, roughness:0.7 });
+    color:0xf59820, transparent:true, opacity:0.72, metalness:0.1, roughness:0.7 });
   const matLeg = new THREE.MeshStandardMaterial({
-    color:0xff9800, transparent:true, opacity:0.6, metalness:0.1, roughness:0.7 });
+    color:0xe07e00, transparent:true, opacity:0.72, metalness:0.1, roughness:0.7 });
   // Platte fuellt genau den Blockierbereich (clearance..h): duenn = Tisch, dick = massiver Block
   const tt = Math.max(0.02, it.h - it.clearance);
   const top = new THREE.Mesh(new THREE.BoxGeometry(it.w, tt, it.d), matTop);
@@ -939,12 +944,12 @@ function buildRoom(b){
   const box = new THREE.BoxGeometry(L, H, W);
   // Innenwaende: BackSide -> die vordere Wand stoert die Sicht nicht
   const wall = new THREE.Mesh(box, new THREE.MeshStandardMaterial({
-    color:0x4fc3f7, transparent:true, opacity:0.05, side:THREE.BackSide,
+    color:0x4fa3e0, transparent:true, opacity:0.08, side:THREE.BackSide,
     metalness:0.0, roughness:1.0, depthWrite:false }));
   wall.position.set(cx, H/2, cz); g.add(wall);
   // Kanten als Drahtgitter
   const edges = new THREE.LineSegments(new THREE.EdgesGeometry(box),
-    new THREE.LineBasicMaterial({ color:0x4fc3f7, transparent:true, opacity:0.35 }));
+    new THREE.LineBasicMaterial({ color:0x2f86c9, transparent:true, opacity:0.55 }));
   edges.position.set(cx, H/2, cz); g.add(edges);
   roomGroup = g; scene.add(g);
 }
@@ -953,7 +958,17 @@ function setRoomInputs(){
   if(!$("roomL")) return;
   $("roomL").value = roomCfg.length; $("roomW").value = roomCfg.width; $("roomH").value = roomCfg.height;
 }
-// Editor-Raumfelder/Checkbox -> roomCfg + Live-Vorschau
+// schreibt die aktuelle Raumgroesse als ROOM = {...} (oder None) ins Code-Feld
+function writeRoomToCode(){
+  const on = $("roomChk").checked;
+  const rm = on
+    ? `ROOM = {'length': ${(+roomCfg.length).toFixed(2)}, 'width': ${(+roomCfg.width).toFixed(2)}, 'height': ${(+roomCfg.height).toFixed(2)}, 'x0': ${(+roomCfg.x0).toFixed(2)}}`
+    : 'ROOM = None';
+  let code = $("code").value;
+  code = /ROOM\s*=\s*(\{[\s\S]*?\}|None)/.test(code) ? code.replace(/ROOM\s*=\s*(\{[\s\S]*?\}|None)/, rm) : (rm + '\n' + code);
+  $("code").value = code;
+}
+// Editor-Raumfelder/Checkbox -> roomCfg + Live-Vorschau + Code aktuell halten
 function onRoomChange(){
   roomCfg.length = Math.max(1, +$("roomL").value || roomCfg.length);
   roomCfg.width  = Math.max(1, +$("roomW").value || roomCfg.width);
@@ -961,6 +976,7 @@ function onRoomChange(){
   const on = $("roomChk").checked;
   $("roomL").disabled = $("roomW").disabled = $("roomH").disabled = !on;
   buildRoom(on ? roomBounds(roomCfg) : null);
+  writeRoomToCode();   // damit ein direktes "Simulieren" die neue Groesse nutzt (kein Zuruecksetzen)
 }
 // nach einem Lauf: Editor aus dem tatsaechlich verwendeten Raum (auch ROOM aus dem Code) angleichen
 function syncRoomFromRun(b){
@@ -1213,7 +1229,7 @@ function updateSensors(p){
     const dx = dirs[i][0], dy = dirs[i][1];
     const d = rayDist(p.x, p.y, dx, dy, p.z);
     let len, col;
-    if(d === null || d > 4){ len = 4; col = 0x2d4a5a; }      // frei
+    if(d === null || d > 4){ len = 4; col = 0xaab6cc; }      // frei
     else { len = d; col = (d < 0.6) ? 0xff5252 : 0xffd740; } // Hindernis nah / in Reichweite
     sensorLines[i].geometry.setFromPoints([o3, new THREE.Vector3(p.x + dx*len, p.z, p.y + dy*len)]);
     sensorLines[i].material.color.setHex(col);
@@ -1223,7 +1239,7 @@ function updateSensors(p){
 function initThree(){
   const el = $("scene");
   scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0d1424);
+  scene.background = new THREE.Color(0xeef2f8);
 
   camera = new THREE.PerspectiveCamera(55, el.clientWidth/Math.max(1,el.clientHeight), 0.05, 500);
   camera.position.set(2.4, 2.0, 2.8);
@@ -1237,10 +1253,10 @@ function initThree(){
   controls.enableDamping = true; controls.dampingFactor = 0.08;
   controls.target.set(0.3, 0.6, 0);
 
-  scene.add(new THREE.AmbientLight(0xffffff, 0.8));
-  const dir = new THREE.DirectionalLight(0xffffff, 0.55); dir.position.set(3,5,2); scene.add(dir);
+  scene.add(new THREE.AmbientLight(0xffffff, 0.95));
+  const dir = new THREE.DirectionalLight(0xffffff, 0.5); dir.position.set(3,5,2); scene.add(dir);
 
-  const grid = new THREE.GridHelper(14, 28, 0x2d3a55, 0x1e2a42);
+  const grid = new THREE.GridHelper(14, 28, 0x9aa8c2, 0xcfd7e6);
   scene.add(grid);
 
   buildObstacles();
@@ -1254,18 +1270,18 @@ function initThree(){
 
   poleLine = new THREE.Line(
     new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]),
-    new THREE.LineBasicMaterial({ color:0x2d3a55, transparent:true, opacity:0.6 }));
+    new THREE.LineBasicMaterial({ color:0x8a98b4, transparent:true, opacity:0.7 }));
   scene.add(poleLine);
 
   startMarker = new THREE.Mesh(new THREE.SphereGeometry(0.03,12,12),
-    new THREE.MeshBasicMaterial({ color:0x2d3a55 }));
+    new THREE.MeshBasicMaterial({ color:0x8a98b4 }));
   scene.add(startMarker);
 
   drone = buildDrone(); scene.add(drone);
 
   for(let i=0;i<4;i++){   // 4 Multiranger-Strahlen
     const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
-    const l = new THREE.Line(g, new THREE.LineBasicMaterial({ color:0x2d4a5a })); l.visible = false;
+    const l = new THREE.Line(g, new THREE.LineBasicMaterial({ color:0xaab6cc })); l.visible = false;
     scene.add(l); sensorLines.push(l);
   }
 
@@ -1346,7 +1362,7 @@ function drawSpeedChart(){
   const w = Math.max(80, Math.round(rect.width)), h = Math.max(60, Math.round(rect.height));
   if(cv.width !== w*dpr || cv.height !== h*dpr){ cv.width = w*dpr; cv.height = h*dpr; }
   const ctx = cv.getContext("2d"); ctx.setTransform(dpr,0,0,dpr,0,0);
-  ctx.fillStyle = "#0d1424"; ctx.fillRect(0,0,w,h);
+  ctx.fillStyle = "#f6f8fc"; ctx.fillRect(0,0,w,h);
   if(!traj.length) return;
   const padL=32, padR=8, padT=8, padB=12;
   const pw = w-padL-padR, ph = h-padT-padB, n = traj.length;
@@ -1358,9 +1374,9 @@ function drawSpeedChart(){
   for(const val of [top, 0, bot]){
     if(val > top+1e-9 || val < bot-1e-9) continue;
     const yy = yOf(val), zero = Math.abs(val) < 1e-6;
-    ctx.strokeStyle = zero ? "#3d4a65" : "#1a2540"; ctx.lineWidth = 1;
+    ctx.strokeStyle = zero ? "#9aa7bd" : "#dde3ee"; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(padL,yy); ctx.lineTo(w-padR,yy); ctx.stroke();
-    ctx.fillStyle = "#7986a0"; ctx.fillText(val.toFixed(1), 3, yy);
+    ctx.fillStyle = "#5d6b82"; ctx.fillText(val.toFixed(1), 3, yy);
   }
   const upto = Math.min(cur, n-1);
   const drawLine = (fn, color) => {
@@ -1368,11 +1384,11 @@ function drawSpeedChart(){
     for(let i=0;i<=upto;i++){ const x=xOf(i), y=yOf(fn(traj[i])); i?ctx.lineTo(x,y):ctx.moveTo(x,y); }
     ctx.stroke();
   };
-  drawLine(p => Math.hypot(p.vx,p.vy), "#ffd740");  // horizontal
-  drawLine(p => p.vz, "#4fc3f7");                    // vertikal
+  drawLine(p => Math.hypot(p.vx,p.vy), "#e08a00");  // horizontal
+  drawLine(p => p.vz, "#1f8ad4");                    // vertikal
   // Laufcursor an der aktuellen Position
   const cx = xOf(upto);
-  ctx.strokeStyle = "#7986a0"; ctx.globalAlpha = 0.6; ctx.setLineDash([3,3]);
+  ctx.strokeStyle = "#5d6b82"; ctx.globalAlpha = 0.6; ctx.setLineDash([3,3]);
   ctx.beginPath(); ctx.moveTo(cx,padT); ctx.lineTo(cx,h-padB); ctx.stroke();
   ctx.setLineDash([]); ctx.globalAlpha = 1;
 }
