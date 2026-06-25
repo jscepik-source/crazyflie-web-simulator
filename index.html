@@ -104,7 +104,7 @@ TABLES = [
     {'x': 2.0, 'y': 0.0, 'w': 0.7, 'd': 0.7, 'h': 0.75, 'clearance': 0.68},
 ]
 # Indoor-Raum: Waende + Decke, vom Multiranger erkannt (mr.front/left/right + mr.up).
-# length=x (Flugrichtung), width=y (mittig), height=Decke, x0=hintere Wand. ROOM = None -> offener Raum.
+# length=x (Flugrichtung), width=y (mittig), height=Decke, x0=hintere Wand; zum Abschalten None setzen.
 ROOM = {'length': 8.0, 'width': 4.0, 'height': 2.5, 'x0': -0.6}
 
 START_HEIGHT = 1.2
@@ -965,7 +965,9 @@ function writeRoomToCode(){
     ? `ROOM = {'length': ${(+roomCfg.length).toFixed(2)}, 'width': ${(+roomCfg.width).toFixed(2)}, 'height': ${(+roomCfg.height).toFixed(2)}, 'x0': ${(+roomCfg.x0).toFixed(2)}}`
     : 'ROOM = None';
   let code = $("code").value;
-  code = /ROOM\s*=\s*(\{[\s\S]*?\}|None)/.test(code) ? code.replace(/ROOM\s*=\s*(\{[\s\S]*?\}|None)/, rm) : (rm + '\n' + code);
+  // nur eine echte Zuweisung am Zeilenanfang ersetzen (Kommentare mit "ROOM = ..." ignorieren)
+  const re = /^[ \t]*ROOM\s*=\s*(\{[\s\S]*?\}|None)/m;
+  code = re.test(code) ? code.replace(re, rm) : (rm + '\n' + code);
   $("code").value = code;
 }
 // Editor-Raumfelder/Checkbox -> roomCfg + Live-Vorschau + Code aktuell halten
@@ -1153,7 +1155,8 @@ function applyEdits(){
   const rm = roomOn
     ? `ROOM = {'length': ${(+roomCfg.length).toFixed(2)}, 'width': ${(+roomCfg.width).toFixed(2)}, 'height': ${(+roomCfg.height).toFixed(2)}, 'x0': ${(+roomCfg.x0).toFixed(2)}}`
     : 'ROOM = None';
-  code = /ROOM\s*=\s*(\{[\s\S]*?\}|None)/.test(code) ? code.replace(/ROOM\s*=\s*(\{[\s\S]*?\}|None)/, rm) : (rm + '\n' + code);
+  const roomRe = /^[ \t]*ROOM\s*=\s*(\{[\s\S]*?\}|None)/m;   // nur echte Zuweisung, nicht im Kommentar
+  code = roomRe.test(code) ? code.replace(roomRe, rm) : (rm + '\n' + code);
   $("code").value = code;
   runSim();
 }
