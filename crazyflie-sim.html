@@ -84,36 +84,32 @@
     <div class="col">
       <div class="panel">
         <div class="ttl">FLUGCODE  (Python)</div>
-        <textarea id="code" spellcheck="false"># === PARCOURS ===  durch die Ringe fliegen.
-# Tipp: oben "✎ Parcours bearbeiten" -> Ringe/Saeulen/Tische mit der MAUS ziehen, dann "Uebernehmen".
-# Im Code: x=vorne, y=links, z=Hoehe, r=Radius (OBSTACLES: h=Hoehe; TABLES: w,d,h,clearance).
-# Auch echter cflib-Code laeuft hier: import cflib... ; with MotionCommander(scf) as mc: mc.forward(...)
-RINGS = [
-    {'x': 1.2, 'y':  0.0, 'z': 1.2, 'r': 0.45},   # 1: mittig, hoch
-    {'x': 2.8, 'y': -0.7, 'z': 0.8, 'r': 0.45},   # 2: rechts, tief
-    {'x': 4.4, 'y':  0.7, 'z': 1.4, 'r': 0.45},   # 3: links, ganz hoch
-    {'x': 6.0, 'y':  0.0, 'z': 0.9, 'r': 0.45},   # 4: mittig, Ziel
-]
-OBSTACLES = [
-    {'x': 1.9, 'y':  0.5, 'r': 0.18, 'h': 1.8},   # Saeulen, vom Multiranger erkannt
-    {'x': 3.6, 'y': -0.8, 'r': 0.18, 'h': 1.8},   # (mr.front / mr.left / mr.right ...)
-    {'x': 5.2, 'y':  0.9, 'r': 0.18, 'h': 1.8},
-]
-TABLES = [
-    # Tisch: blockiert nur die Platte -> drunter durch (tief) oder drueber weg (hoch).
-    {'x': 2.0, 'y': 0.0, 'w': 0.7, 'd': 0.7, 'h': 0.75, 'clearance': 0.68},
-]
-# Indoor-Raum: Waende + Decke, vom Multiranger erkannt (mr.front/left/right + mr.up).
-# length=x (Flugrichtung), width=y (mittig), height=Decke, x0=hintere Wand; zum Abschalten None setzen.
-ROOM = {'length': 8.0, 'width': 4.0, 'height': 2.5, 'x0': -0.6}
+        <textarea id="code" spellcheck="false"># === TISCH-PARCOURS ===  einfache, gerade Route (x = vorne):
+#   1) UNTER Tisch 1 durch (tief fliegen)
+#   2) UEBER Tisch 2 hinweg (hoch fliegen)
+#   3) durch das Ziel-Tor
+# Tipp: oben "Parcours bearbeiten" -> Tische/Tor mit der Maus ziehen, dann "Uebernehmen".
+# Kollision ist an: bei falscher Hoehe stoppt die Drohne am Tisch und kommt nicht durch.
 
-START_HEIGHT = 1.2
-SPEED = 0.7
+TABLES = [
+    {'x': 1.5, 'y': 0.0, 'w': 0.7, 'd': 1.2, 'h': 1.30, 'clearance': 0.70},  # Tisch 1: DRUNTER durch
+    {'x': 3.0, 'y': 0.0, 'w': 0.7, 'd': 1.2, 'h': 0.50, 'clearance': 0.00},  # Tisch 2: DRUEBER weg
+]
+RINGS = [
+    {'x': 4.5, 'y': 0.0, 'z': 0.90, 'r': 0.45},   # Ziel-Tor
+]
+OBSTACLES = []
+ROOM = {'length': 6.0, 'width': 3.0, 'height': 2.0, 'x0': -0.5}
+
+LOW   = 0.40   # Hoehe, um unter Tisch 1 durchzufliegen
+HIGH  = 0.90   # Hoehe, um ueber Tisch 2 zu fliegen
+START_HEIGHT = LOW
+SPEED = 0.6
 
 def flight(mc, mr):
     import time
-    def goto(tx, ty, tz, tol=0.1):                     # fliegt proportional zum Zielpunkt
-        while True:
+    def goto(tx, ty, tz, tol=0.08):                    # fliegt geradlinig zum Zielpunkt
+        for _ in range(3000):
             dx, dy, dz = tx - mc.x, ty - mc.y, tz - mc.z
             dist = (dx*dx + dy*dy + dz*dz) ** 0.5
             if dist < tol:
@@ -121,11 +117,14 @@ def flight(mc, mr):
             k = min(SPEED, dist * 1.6) / dist
             mc.start_linear_motion(dx*k, dy*k, dz*k)
             time.sleep(0.1)
-    for g in RINGS:                                    # durch jeden Ring – folgt auch verschobenen Ringen
-        goto(g['x'], g['y'], g['z'])
-    if RINGS:                                           # durch den letzten Ring hinausfliegen
-        last = RINGS[-1]
-        goto(last['x'] + 0.7, last['y'], last['z'])
+        mc.stop()
+
+    goto(0.8, 0.0, LOW)    # tief anfliegen
+    goto(2.2, 0.0, LOW)    # unter Tisch 1 hindurch
+    goto(2.4, 0.0, HIGH)   # aufsteigen
+    goto(3.8, 0.0, HIGH)   # ueber Tisch 2 hinweg
+    goto(4.5, 0.0, HIGH)   # durch das Ziel-Tor
+    goto(5.2, 0.0, HIGH)   # hinausfliegen
     mc.stop()
 </textarea>
         <div class="btnrow">
@@ -695,30 +694,24 @@ let roomCfg = null;   // veraenderbare Raum-Parameter (Editor); aus ROOM initial
 
 // Hindernis-Parcours (Säulen) – wird in 3D gezeichnet UND an Python (Multiranger) übergeben.
 // x = vorne, y = links, r = Radius, h = Höhe (alles in Metern).
-const OBSTACLES = [
-  { x:1.0, y:0.0,  r:0.16, h:1.6 },
-  { x:2.0, y:0.0,  r:0.16, h:1.6 },
-  { x:3.0, y:0.0,  r:0.16, h:1.6 },
-  { x:4.0, y:0.0,  r:0.16, h:1.6 },
-];
+const OBSTACLES = [];
 
 // Ringe (Tore) zum Durchfliegen – ebenfalls im Editor-Code (RINGS = [...]) aenderbar.
 // x = vorne, y = links, z = Höhe (Mittelpunkt), r = Radius (Meter).
 const RINGS = [
-  { x:1.5, y:0.0,  z:1.0, r:0.45 },
-  { x:3.0, y:0.6,  z:0.7, r:0.45 },
-  { x:4.5, y:-0.5, z:1.2, r:0.45 },
+  { x:4.5, y:0.0, z:0.9, r:0.45 },   // Ziel-Tor
 ];
 
 // Tische – Box-Hindernisse, unter denen man durch- oder ueber die man hinwegfliegen kann.
 // x = vorne, y = links (Mitte), w = Breite (x), d = Tiefe (y), h = Plattenhoehe, clearance = Unterkante.
 const TABLES = [
-  { x:2.2, y:0.0, w:0.7, d:0.7, h:0.75, clearance:0.68 },
+  { x:1.5, y:0.0, w:0.7, d:1.2, h:1.30, clearance:0.70 },   // drunter durch
+  { x:3.0, y:0.0, w:0.7, d:1.2, h:0.50, clearance:0.00 },   // drueber weg
 ];
 
 // Indoor-Raum (Waende + Decke) – der Multiranger erkennt die Waende.
 // Laenge = x (Flugrichtung), Breite = y (mittig), Hoehe = Decke. x0 = hintere Wand hinter dem Start.
-const ROOM = { length:8.0, width:4.0, height:2.5, x0:-0.6 };
+const ROOM = { length:6.0, width:3.0, height:2.0, x0:-0.5 };
 roomCfg = Object.assign({}, ROOM);
 
 // rechnet Raum-Parameter (length/width/height/x0) in Bounds {xmin,xmax,ymin,ymax,h} um
