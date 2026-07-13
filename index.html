@@ -56,6 +56,15 @@
   #raceBanner .rb-row{display:flex; align-items:center; gap:6px; padding:1px 0}
   #raceBanner .rb-dot{width:10px; height:10px; border-radius:50%; display:inline-block; flex:0 0 auto}
   #raceBanner .rb-st{margin-left:auto; color:var(--dim); font-variant-numeric:tabular-nums}
+  #raceBanner .rb-count{font-size:40px; font-weight:800; color:var(--blue); text-align:center; padding:6px 18px; line-height:1.1}
+  #raceBanner .rb-best{margin-top:6px; padding-top:5px; border-top:1px solid var(--edge2); color:var(--org); font-weight:600; text-align:center}
+  #raceBanner .rb-new{background:var(--grn); color:#fff; border-radius:4px; padding:0 6px; font-size:11px}
+  #raceBanner .rb-again{margin-top:3px; color:var(--dim); font-size:11px; text-align:center}
+  #collHint{position:absolute; bottom:10px; left:50%; transform:translateX(-50%); z-index:5; display:none;
+    background:rgba(211,51,51,.92); color:#fff; border-radius:8px; padding:6px 12px; font-size:12px;
+    font-weight:600; box-shadow:0 2px 10px rgba(120,20,20,.3); pointer-events:none}
+  #minimap{position:absolute; right:8px; bottom:8px; z-index:4; width:150px; height:112px;
+    border:1px solid var(--edge2); border-radius:6px; background:rgba(255,255,255,.8); pointer-events:none}
   .readouts{display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:10px}
   .ro{background:var(--screen); border:1px solid var(--edge); border-radius:8px; padding:7px 9px}
   .ro .k{color:var(--dim); font-size:10px; letter-spacing:.5px}
@@ -92,8 +101,15 @@
       <div class="panel">
         <div class="ttl">FLUGCODE  (Python)</div>
         <textarea id="code" spellcheck="false"># === racing.py ===  echter Crazyflie-Hardware-Code, hier im Simulator lauffaehig.
-# Der Kurs (zwei Tische) kommt aus dem Simulator; der Front-Sensor erkennt sie.
-# Tipp: Button 'Race Mode' startet 3 Drohnen um die Wette auf dieser Mission.
+# Tipp: Button 'Race Mode' startet mehrere Drohnen um die Wette auf dieser Mission.
+# Simulator-Kurs (Hindernis-Tische) – der Front-Sensor erkennt sie:
+TABLES = [
+    {'x': 1.30, 'y': 0.00, 'w': 0.80, 'd': 1.60, 'h': 0.75, 'clearance': 0.70},
+    {'x': 4.10, 'y': 0.00, 'w': 0.80, 'd': 1.60, 'h': 0.75, 'clearance': 0.70},
+]
+OBSTACLES = []
+RINGS = []
+ROOM = {'length': 6.70, 'width': 5.80, 'height': 2.70, 'x0': -0.60}
 
 """
 Aufgabe 3: Hindernis-Unterflug mit Rückkehr über den Tisch
@@ -620,9 +636,22 @@ if __name__ == '__main__':
         <div class="btnrow">
           <button id="run" class="primary" disabled>▶ Simulieren</button>
           <button id="race" disabled>🏁 Race Mode</button>
-          <button id="reset">Beispiel laden</button>
+          <label class="hint">Drohnen
+            <select id="raceCount">
+              <option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option>
+            </select>
+          </label>
+          <label class="hint">Beispiel
+            <select id="example">
+              <option value="">– wählen –</option>
+              <option value="racing">racing.py (Unterflug)</option>
+              <option value="parkour">Tisch-Parkour</option>
+              <option value="slalom">Ringe-Slalom</option>
+            </select>
+          </label>
           <button id="share">🔗 Teilen</button>
           <span id="status">Lade Python-Laufzeit …</span>
+          <span id="saveHint" class="hint"></span>
         </div>
         <div id="errbox" class="err-box"></div>
       </div>
@@ -632,7 +661,7 @@ if __name__ == '__main__':
     <div class="col">
       <div class="panel">
         <div class="ttl">FLUGBAHN</div>
-        <div id="scene"><div id="raceBanner"></div></div>
+        <div id="scene"><div id="raceBanner"></div><div id="collHint">⚠ Drohne blockiert – Hindernis im Weg</div><canvas id="minimap" width="150" height="112"></canvas></div>
         <div class="legend"><b>3D-Ansicht</b> &nbsp; ziehen = drehen · scrollen = zoom · Rechtsklick-ziehen = verschieben &nbsp;|&nbsp; Bahnfarbe = Höhe</div>
         <div class="editbar">
           <button id="editToggle">✎ Parcours bearbeiten</button>
@@ -683,6 +712,7 @@ if __name__ == '__main__':
           <input type="range" id="scrub" min="0" max="0" value="0">
           <label class="hint"><input type="checkbox" id="sensChk"> 📡 Sensoren</label>
           <label class="hint"><input type="checkbox" id="collChk" checked> 🧱 Kollision</label>
+          <label class="hint"><input type="checkbox" id="followChk"> 🎥 Folgen</label>
           <label class="hint">Tempo
             <select id="speed">
               <option value="0.5">0.5×</option>
@@ -734,6 +764,7 @@ class MotionCommander:
         self._vel = (0.0, 0.0, 0.0)   # Body-Frame-Geschwindigkeit für start_linear_motion
         self._yawrate = 0.0
         self._target_h = None         # Soll-Hoehe fuer send_hover_setpoint (None = vz-Modus)
+        self._blocked = False         # letzter Schritt an einem Hindernis geblockt?
         self.t = 0.0
         self._phase = 'takeoff'
         self.traj = []
@@ -759,6 +790,7 @@ class MotionCommander:
             'yaw': round(self.yaw, 5),
             'vx': round(vx, 4), 'vy': round(vy, 4), 'vz': round(vz, 4),
             'phase': self._phase,
+            'blk': 1 if self._blocked else 0,
         })
 
     def _move(self, dx, dy, dz, velocity=None, phase=''):
@@ -780,13 +812,18 @@ class MotionCommander:
     def _step_to(self, dx, dy, dz):
         """Bewegt um (dx,dy,dz) – stoppt aber pro Achse an Hindernissen/Tischen/Waenden."""
         if not _RUN_COLLIDE:
-            self.x += dx; self.y += dy; self.z = max(0.0, self.z + dz); return
+            self.x += dx; self.y += dy; self.z = max(0.0, self.z + dz); self._blocked = False; return
         nx, ny, nz = self.x, self.y, self.z
+        blk = False
         if not _collides(nx + dx, ny, nz): nx += dx
+        elif abs(dx) > 1e-9: blk = True
         if not _collides(nx, ny + dy, nz): ny += dy
+        elif abs(dy) > 1e-9: blk = True
         tz = max(0.0, nz + dz)
         if not _collides(nx, ny, tz):      nz = tz
+        elif abs(dz) > 1e-9: blk = True
         self.x, self.y, self.z = nx, ny, nz
+        self._blocked = blk
 
     def _body(self, fwd, left):
         c, s = math.cos(self.yaw), math.sin(self.yaw)
@@ -1253,6 +1290,20 @@ def _run():
     # time.sleep treibt die Sim voran; time.time liefert die Sim-Uhr (fuer zeitbasierte Loops)
     _t.sleep = lambda secs=0.0: (_ACTIVE_MC._advance(secs) if _ACTIVE_MC is not None else None)
     _t.time  = lambda: (_ACTIVE_MC.t if _ACTIVE_MC is not None else 0.0)
+    # Vorab-Durchlauf: Kurs-Konstanten holen, BEVOR geflogen wird. Noetig, weil echter
+    # Hardware-Code (racing.py) die Mission schon beim Import startet (if __name__=='__main__')
+    # und der Sensor die Tische/Waende sonst erst nach dem Flug kennen wuerde.
+    try:
+        pre = {'__name__': '__prescan__', '__file__': 'racing.py',
+               'MotionCommander': MotionCommander, 'Multiranger': Multiranger}
+        exec(USER_CODE, pre)
+        if isinstance(pre.get('OBSTACLES'), (list, tuple)): obstacles = _norm_obstacles(pre['OBSTACLES'])
+        if isinstance(pre.get('RINGS'), (list, tuple)):     rings     = _norm_rings(pre['RINGS'])
+        if isinstance(pre.get('TABLES'), (list, tuple)):    tables    = _norm_tables(pre['TABLES'])
+        if 'ROOM' in pre:                                   room      = _norm_room(pre['ROOM'])
+    except Exception:
+        pass   # ein echter Fehler wird im Hauptlauf gemeldet
+    _RUN_OBSTACLES = obstacles; _RUN_TABLES = tables; _RUN_ROOM = room
     # __name__/__file__ setzen, damit echte Skripte (if __name__=='__main__': ...) laufen
     ns = {'MotionCommander': MotionCommander, 'Multiranger': Multiranger,
           '__name__': '__main__', '__file__': 'racing.py'}
@@ -1310,9 +1361,12 @@ const DT = 0.05;
 let roomCfg = null;   // veraenderbare Raum-Parameter (Editor); aus ROOM initialisiert
 // ── Race-Mode-Zustand ──
 let raceActive = false;
-let raceRacers = [];      // [{traj,dur,rate,lane,color,name,mesh,trailLine,trailGeom,finished,finishAt}]
-let raceClock0 = 0;       // performance.now() beim Rennstart
+let raceRacers = [];      // Renn-Drohnen (siehe startRace)
+let raceClock0 = 0;       // performance.now() beim Rennstart (Ende Countdown)
 let raceDone = false;
+let raceState = 'idle';   // 'countdown' | 'running' | 'done'
+let raceCountEnd = 0;     // performance.now(), wann der Countdown endet
+let lastRaceTs = 0;       // fuer dtReal im Rennen
 
 // Hindernis-Parcours (Säulen) – wird in 3D gezeichnet UND an Python (Multiranger) übergeben.
 // x = vorne, y = links, r = Radius, h = Höhe (alles in Metern).
@@ -1349,9 +1403,13 @@ async function boot(){
     pyodide = await loadPyodide();
     setStatus("Bereit. Code eingeben und ▶ Simulieren.", "ok");
     $("run").disabled = false; $("race").disabled = false;
-    // geteilten Parcours aus der URL laden, falls vorhanden
+    restoreSettings();
+    // Reihenfolge: geteilter Link (#c=) > im Browser gespeichert > Standard
     if(location.hash.indexOf('#c=') === 0){
-      try{ $("code").value = decodeURIComponent(escape(atob(location.hash.slice(3)))); }catch(e){}
+      try{ $("code").value = decodeURIComponent(escape(atob(location.hash.slice(3)))); saveCode(); }catch(e){}
+    } else {
+      const saved = localStorage.getItem(LS_CODE);
+      if(saved != null) $("code").value = saved;
     }
     // sofort rechnen, damit man gleich was sieht
     runSim();
@@ -1363,6 +1421,36 @@ async function boot(){
 function setStatus(msg, cls){
   elStatus.textContent = msg;
   elStatus.className = cls || "";
+}
+
+// ── Persistenz: Code + Einstellungen bleiben im Browser erhalten ──
+const LS_CODE = 'cf_code_v1', LS_SET = 'cf_settings_v1';
+let _saveHintTimer = null;
+function saveCode(){
+  try{
+    localStorage.setItem(LS_CODE, $("code").value);
+    const el = $("saveHint");
+    if(el){ el.textContent = '✓ gespeichert'; clearTimeout(_saveHintTimer);
+      _saveHintTimer = setTimeout(()=>{ el.textContent = ''; }, 1500); }
+  }catch(e){}
+}
+function saveSettings(){
+  try{ localStorage.setItem(LS_SET, JSON.stringify({
+    coll: !$("collChk") || $("collChk").checked,
+    room: !$("roomChk") || $("roomChk").checked,
+    sens: $("sensChk") && $("sensChk").checked,
+    follow: $("followChk") && $("followChk").checked,
+  })); }catch(e){}
+}
+function restoreSettings(){
+  try{
+    const s = JSON.parse(localStorage.getItem(LS_SET) || 'null');
+    if(!s) return;
+    if($("collChk")) $("collChk").checked = s.coll !== false;
+    if($("roomChk")) $("roomChk").checked = s.room !== false;
+    if($("sensChk")) $("sensChk").checked = !!s.sens;
+    if($("followChk")) $("followChk").checked = !!s.follow;
+  }catch(e){}
 }
 
 // ── Simulation ausführen ──
@@ -1509,6 +1597,11 @@ function buildDrone(){
     new THREE.MeshStandardMaterial({ color:0xff5252 }));
   nose.rotation.z = -Math.PI/2; nose.position.set(0.095,0,0); g.add(nose);
 
+  // rote Warn-Huelle (blinkt bei Kollision/Blockade)
+  const halo = new THREE.Mesh(new THREE.SphereGeometry(0.17, 16, 12),
+    new THREE.MeshBasicMaterial({ color:0xff3b3b, transparent:true, opacity:0.33 }));
+  halo.visible = false; g.add(halo); g.userData.halo = halo;
+
   g.userData.rotors = rotors;
   return g;
 }
@@ -1626,6 +1719,7 @@ function writeRoomToCode(){
   const re = /^[ \t]*ROOM\s*=\s*(\{[\s\S]*?\}|None)/m;
   code = re.test(code) ? code.replace(re, rm) : (rm + '\n' + code);
   $("code").value = code;
+  saveCode();
 }
 // Editor-Raumfelder/Checkbox -> roomCfg + Live-Vorschau + Code aktuell halten
 function onRoomChange(){
@@ -1815,6 +1909,7 @@ function applyEdits(){
   const roomRe = /^[ \t]*ROOM\s*=\s*(\{[\s\S]*?\}|None)/m;   // nur echte Zuweisung, nicht im Kommentar
   code = roomRe.test(code) ? code.replace(roomRe, rm) : (rm + '\n' + code);
   $("code").value = code;
+  saveCode();
   runSim();
 }
 
@@ -1981,12 +2076,64 @@ function update3D(){
   drone.rotation.y = -(p.yaw || 0);
   poleLine.geometry.setFromPoints([ v, new THREE.Vector3(v.x,0,v.z) ]);
   trailGeom.setDrawRange(0, i+1);
+  // Kollisions-Feedback: rote Huelle blinkt + Hinweis, wenn die Drohne ansteht
+  const blk = !!p.blk;
+  if(drone.userData.halo) drone.userData.halo.visible = blk && (Math.floor(performance.now()/140)%2===0);
+  const ch = $("collHint"); if(ch) ch.style.display = blk ? 'block' : 'none';
   updateSensors(p);
   updateReadouts();
 }
 
 // Kompatibilität mit Scrub-/Resize-Handlern
 function render(){ update3D(); }
+
+// Kamera folgt sanft der (fuehrenden) Drohne, ohne das Orbit-Verhalten zu stoeren
+function followCamera(){
+  if(!$("followChk") || !$("followChk").checked || !controls) return;
+  let target = null;
+  if(raceActive && raceRacers.length){
+    let lead = raceRacers[0];
+    for(const r of raceRacers) if(r.prog > lead.prog) lead = r;
+    target = lead.mesh.position;
+  } else if(drone && drone.visible && traj.length){
+    target = drone.position;
+  }
+  if(!target) return;
+  const delta = target.clone().sub(controls.target).multiplyScalar(0.09);
+  controls.target.add(delta);
+  camera.position.add(delta);
+}
+
+// Draufsicht-Minikarte (x = rechts, y/links = oben): Raum, Tische, Saeulen, Drohne(n)
+function drawMinimap(){
+  const cv = $("minimap"); if(!cv) return;
+  const ctx = cv.getContext('2d'); const W = cv.width, H = cv.height;
+  const rb = (!$("roomChk") || $("roomChk").checked) ? roomBounds(roomCfg) : null;
+  let xmin,xmax,ymin,ymax;
+  if(rb){ xmin=rb.xmin; xmax=rb.xmax; ymin=rb.ymin; ymax=rb.ymax; }
+  else if(bounds){ xmin=bounds.xmin-0.3; xmax=bounds.xmax+0.3; ymin=bounds.ymin-0.3; ymax=bounds.ymax+0.3; }
+  else { ctx.clearRect(0,0,W,H); return; }
+  const pad = 7, s = Math.min((W-2*pad)/Math.max(0.1,xmax-xmin), (H-2*pad)/Math.max(0.1,ymax-ymin));
+  const ox = (W - s*(xmax-xmin))/2, oy = (H - s*(ymax-ymin))/2;
+  const X = wx => ox + (wx - xmin)*s;
+  const Y = wy => H - (oy + (wy - ymin)*s);   // +y (links) nach oben
+  ctx.clearRect(0,0,W,H);
+  ctx.strokeStyle = '#9aa8c2'; ctx.lineWidth = 1;
+  ctx.strokeRect(X(xmin), Y(ymax), (xmax-xmin)*s, (ymax-ymin)*s);
+  ctx.fillStyle = 'rgba(224,140,20,.55)';
+  for(const t of editTables){ ctx.fillRect(X(t.x)-t.w*s/2, Y(t.y)-t.d*s/2, t.w*s, t.d*s); }
+  ctx.fillStyle = 'rgba(224,59,59,.6)';
+  for(const o of editObstacles){ ctx.beginPath(); ctx.arc(X(o.x), Y(o.y), Math.max(2,o.r*s), 0, 6.2832); ctx.fill(); }
+  ctx.strokeStyle = 'rgba(160,47,190,.7)'; ctx.lineWidth = 1.4;
+  for(const g of editRings){ ctx.beginPath(); ctx.arc(X(g.x), Y(g.y), Math.max(2,g.r*s), 0, 6.2832); ctx.stroke(); }
+  if(raceActive && raceRacers.length){
+    for(const rc of raceRacers){ ctx.fillStyle = hex6(rc.color);
+      ctx.beginPath(); ctx.arc(X(rc.mesh.position.x), Y(rc.mesh.position.z), 3, 0, 6.2832); ctx.fill(); }
+  } else if(traj.length){
+    const p = traj[Math.min(cur, traj.length-1)];
+    ctx.fillStyle = '#1769b3'; ctx.beginPath(); ctx.arc(X(p.x), Y(p.y), 3.5, 0, 6.2832); ctx.fill();
+  }
+}
 
 function onResize(){
   if(threeReady){
@@ -2053,10 +2200,16 @@ function drawSpeedChart(){
   ctx.setLineDash([]); ctx.globalAlpha = 1;
 }
 
-// ── Race-Mode: 3 Drohnen fliegen dieselbe Mission um die Wette ──────────────
+// ── Race-Mode: mehrere Drohnen fliegen dieselbe Mission um die Wette ─────────
 function hex6(c){ return '#' + c.toString(16).padStart(6,'0'); }
+const RACE_PALETTE = [
+  {name:'Drohne 1', color:0x1aa3c4}, {name:'Drohne 2', color:0xe0489a},
+  {name:'Drohne 3', color:0xd39000}, {name:'Drohne 4', color:0x36a852},
+  {name:'Drohne 5', color:0x8a5cf0}, {name:'Drohne 6', color:0xe0602a},
+];
+function hashStr(s){ let h=0; for(let i=0;i<s.length;i++) h=(h*31 + s.charCodeAt(i))|0; return h>>>0; }
 
-// eine erkennbare Renn-Drohne (Detail-Drohne + farbiger Ring zur Unterscheidung)
+// erkennbare Renn-Drohne (Detail-Drohne + farbiger Ring)
 function buildRacer(color){
   const g = buildDrone();
   const ring = new THREE.Mesh(
@@ -2066,8 +2219,20 @@ function buildRacer(color){
   ring.rotation.x = Math.PI/2; ring.position.y = -0.03; g.add(ring);
   return g;
 }
-
-// Position/Blickrichtung auf der Bahn zum Zeitpunkt t (interpoliert)
+// schwebende Nummer ueber der Drohne (Sprite, immer zur Kamera gerichtet)
+function makeNumberSprite(txt, color){
+  const c = document.createElement('canvas'); c.width = 64; c.height = 64;
+  const x = c.getContext('2d');
+  x.fillStyle = hex6(color); x.beginPath(); x.arc(32,32,29,0,Math.PI*2); x.fill();
+  x.strokeStyle = '#fff'; x.lineWidth = 4; x.stroke();
+  x.fillStyle = '#fff'; x.font = 'bold 40px sans-serif'; x.textAlign='center'; x.textBaseline='middle';
+  x.fillText(txt, 32, 35);
+  const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map:new THREE.CanvasTexture(c),
+    transparent:true, depthTest:false }));
+  spr.scale.set(0.17,0.17,0.17);
+  return spr;
+}
+// Position auf der Bahn zum Zeitpunkt t (interpoliert)
 function sampleTraj(tr, t){
   if(t <= tr[0].t) return tr[0];
   const last = tr[tr.length-1];
@@ -2083,8 +2248,9 @@ function stopRace(){
   for(const r of raceRacers){
     scene.remove(r.mesh); disposeObj3D(r.mesh);
     scene.remove(r.trailLine); r.trailGeom.dispose();
+    if(r.label){ scene.remove(r.label); if(r.label.material.map) r.label.material.map.dispose(); r.label.material.dispose(); }
   }
-  raceRacers = []; raceActive = false; raceDone = false;
+  raceRacers = []; raceActive = false; raceDone = false; raceState = 'idle';
   if(drone) drone.visible = true;
   if(trailLine) trailLine.visible = true;
   if(poleLine) poleLine.visible = true;
@@ -2103,7 +2269,6 @@ async function startRace(){
   catch(e){ setStatus("Race: unerwarteter Fehler.", "err"); elErr.textContent=String(e); elErr.style.display="block"; $("race").disabled=false; $("run").disabled=false; return; }
   if(!out.ok){ setStatus("Race: Fehler im Flugcode.", "err"); elErr.textContent=out.trace||out.error; elErr.style.display="block"; $("race").disabled=false; $("run").disabled=false; return; }
 
-  // Szene aus dem Basislauf aufbauen
   traj = out.traj;
   if(out.obstacles) buildObstacles(out.obstacles);
   if(out.tables) buildTables(out.tables);
@@ -2114,80 +2279,121 @@ async function startRace(){
   if(traj.length < 2){ setStatus("Bahn ist leer.", "err"); return; }
 
   const base = traj, dur = base[base.length-1].t;
-  // normale Drohne + Bahn ausblenden
   playing = false; $("play").textContent = "▶ Abspielen";
   if(drone) drone.visible = false;
   if(trailLine) trailLine.visible = false;
   if(poleLine) poleLine.visible = false;
   for(const l of sensorLines) l.visible = false;
 
-  const specs = [
-    { name:'Drohne 1', color:0x22b8d6, lane:-0.25 },
-    { name:'Drohne 2', color:0xe0489a, lane: 0.00 },
-    { name:'Drohne 3', color:0xe0a000, lane: 0.25 },
-  ];
-  raceRacers = specs.map(s => {
-    const mesh = buildRacer(s.color); scene.add(mesh);
-    // Bahn-Puffer (mit Spur-Versatz) einmal fuellen, dann per drawRange aufdecken
+  const N = Math.max(2, Math.min(6, parseInt($("raceCount") && $("raceCount").value, 10) || 3));
+  const spacing = 0.22;
+  raceRacers = [];
+  for(let i=0;i<N;i++){
+    const s = RACE_PALETTE[i];
+    const lane = (i - (N-1)/2) * spacing;
+    const mesh = buildRacer(s.color); mesh.visible = false; scene.add(mesh);
+    const label = makeNumberSprite(String(i+1), s.color); label.visible = false; scene.add(label);
     const pos = new Float32Array(base.length * 3);
-    for(let j=0;j<base.length;j++){
-      const p = base[j];
-      pos[j*3] = p.x; pos[j*3+1] = p.z; pos[j*3+2] = p.y + s.lane;
-    }
+    for(let j=0;j<base.length;j++){ const p = base[j]; pos[j*3]=p.x; pos[j*3+1]=p.z; pos[j*3+2]=p.y+lane; }
     const g = new THREE.BufferGeometry();
-    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    g.setDrawRange(0, 1);
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3)); g.setDrawRange(0, 1);
     const line = new THREE.Line(g, new THREE.LineBasicMaterial({ color:s.color, transparent:true, opacity:0.85 }));
     scene.add(line);
-    // Tempo pro Drohne leicht zufaellig -> Sieger variiert
-    const rate = 0.93 + Math.random() * 0.17;
-    return { base, dur, rate, lane:s.lane, color:s.color, name:s.name,
-             mesh, trailLine:line, trailGeom:g, finished:false, finishAt:0, _prog:0 };
-  });
-
-  raceActive = true; raceDone = false; raceClock0 = performance.now();
+    // Renn-Charakter: leicht andere Grundgeschwindigkeit + Boeen (Wobble) mit eigener Phase
+    raceRacers.push({ base, dur, lane, color:s.color, name:s.name, num:i+1,
+      mesh, label, trailLine:line, trailGeom:g,
+      baseRate: 0.97 + Math.random()*0.06,
+      amp: 0.22 + Math.random()*0.20, freq: 0.6 + Math.random()*1.1, phase: Math.random()*6.28,
+      jitter: Math.random()*0.35,          // kleiner Startversatz [s Renn-Zeit]
+      simElapsed: 0, prog: 0, finished:false, finishTime:0 });
+  }
+  // Countdown starten
+  raceActive = true; raceDone = false; raceState = 'countdown';
+  raceCountEnd = performance.now() + 3200;   // "3","2","1","LOS!"
   $("raceBanner").style.display = 'block';
-  setStatus("🏁 Race läuft …", "ok");
+  setStatus("🏁 Race Mode – Countdown …", "ok");
 }
 
 function updateRace(){
   if(!raceActive || !raceRacers.length) return;
+  const now = performance.now();
   const dur = raceRacers[0].dur;
+
+  if(raceState === 'countdown'){
+    const rem = (raceCountEnd - now) / 1000;
+    const txt = rem > 2.2 ? '3' : rem > 1.2 ? '2' : rem > 0.2 ? '1' : 'LOS!';
+    $("raceBanner").innerHTML = '<div class="rb-count">' + txt + '</div>';
+    // Drohnen an der Startlinie zeigen
+    for(const r of raceRacers){
+      const p = r.base[0];
+      r.mesh.visible = true; r.label.visible = true;
+      r.mesh.position.copy(to3(p.x, p.y + r.lane, p.z));
+      r.label.position.copy(to3(p.x, p.y + r.lane, p.z)).add(new THREE.Vector3(0,0.24,0));
+    }
+    if(rem <= 0){ raceState = 'running'; lastRaceTs = now; }
+    return;
+  }
+
   const sel = parseFloat($("speed").value) || 1;
   const mult = (sel >= 999) ? 6 : sel;
-  const tempo = (dur / 10) * mult;            // Basis-Mission auf ~10 s / Tempo komprimieren
-  const elapsed = (performance.now() - raceClock0) / 1000 * tempo;
+  const tempo = (dur / 10) * mult;                 // Basis-Mission auf ~10 s / Tempo komprimieren
+  const dtSim = Math.min(0.1, (now - lastRaceTs)/1000) * tempo;   // Sim-Sekunden diesen Frame
+  lastRaceTs = now;
 
   for(const r of raceRacers){
-    const localT = elapsed * r.rate;
-    const tt = Math.min(localT, r.dur);
+    if(!r.finished){
+      let step = dtSim;
+      if(r.jitter > 0){ const use = Math.min(r.jitter, step); r.jitter -= use; step -= use; }  // Startversatz
+      if(step > 0){
+        // Momentangeschwindigkeit: Grundtempo + Boe (Sinus, eigene Phase) -> Fuehrungswechsel
+        const speed = Math.max(0.15, r.baseRate * (1 + r.amp * Math.sin(r.freq * r.simElapsed + r.phase)));
+        r.simElapsed += step; r.prog += speed * step;
+      }
+      if(r.prog >= r.dur){ r.prog = r.dur; r.finished = true; r.finishTime = r.simElapsed; }
+    }
+    const tt = Math.min(r.prog, r.dur);
     const p = sampleTraj(r.base, tt);
+    r.mesh.visible = true; r.label.visible = true;
     r.mesh.position.copy(to3(p.x, p.y + r.lane, p.z));
     r.mesh.rotation.y = -(p.yaw || 0);
+    r.label.position.copy(to3(p.x, p.y + r.lane, p.z)).add(new THREE.Vector3(0,0.24,0));
     if(r.mesh.userData.rotors) for(const rt of r.mesh.userData.rotors) rt.rotation.y += 0.9;
     const idx = Math.min(r.base.length-1, Math.round((tt / r.dur) * (r.base.length-1)));
     r.trailGeom.setDrawRange(0, idx+1);
-    r._prog = Math.min(1, localT / r.dur);
-    if(localT >= r.dur && !r.finished){ r.finished = true; r.finishAt = elapsed; }
   }
+
   updateRaceBanner();
-  if(raceRacers.every(r => r.finished)) raceDone = true;
+  if(raceState === 'running' && raceRacers.every(r => r.finished)){
+    raceState = 'done'; raceDone = true;
+    setStatus("🏁 Rennen beendet.", "ok");
+  }
 }
 
 function updateRaceBanner(){
   const arr = raceRacers.slice().sort((a,b) => {
-    if(a.finished && b.finished) return a.finishAt - b.finishAt;
+    if(a.finished && b.finished) return a.finishTime - b.finishTime;
     if(a.finished) return -1; if(b.finished) return 1;
-    return b._prog - a._prog;
+    return b.prog - a.prog;
   });
   const allDone = raceRacers.every(r => r.finished);
-  const medals = ['🥇','🥈','🥉'];
-  let html = '<div class="rb-title">' + (allDone ? ('🏁 ' + arr[0].name + ' gewinnt!') : '🏁 Race Mode') + '</div>';
+  const medals = ['🥇','🥈','🥉','4.','5.','6.'];
+  let html = '<div class="rb-title">' + (allDone ? ('🏁 ' + arr[0].name + ' gewinnt!') : '🏁 Rennen läuft') + '</div>';
   arr.forEach((r,i) => {
-    const st = r.finished ? ('Ziel ' + r.finishAt.toFixed(1) + ' s') : (Math.round(r._prog*100) + ' %');
+    const st = r.finished ? (r.finishTime.toFixed(1) + ' s') : (Math.round(r.prog / r.dur * 100) + ' %');
     html += '<div class="rb-row"><span class="rb-dot" style="background:' + hex6(r.color) + '"></span>'
-          + (medals[i]||'&nbsp;') + ' ' + r.name + '<span class="rb-st">' + st + '</span></div>';
+          + (medals[i]||(i+1)+'.') + ' ' + r.name + '<span class="rb-st">' + st + '</span></div>';
   });
+  if(allDone){
+    const key = 'cf_best_' + hashStr($("code").value) + '_' + raceRacers.length;
+    const prev = parseFloat(localStorage.getItem(key) || 'NaN');
+    const win = arr[0].finishTime;
+    let isNew = false;
+    if(isNaN(prev) || win < prev){ localStorage.setItem(key, win.toFixed(2)); isNew = true; }
+    const best = isNew ? win : prev;
+    html += '<div class="rb-best">Bestzeit: ' + best.toFixed(1) + ' s'
+          + (isNew ? ' <span class="rb-new">NEU!</span>' : '') + '</div>';
+    html += '<div class="rb-again">↻ „Race Mode" für Revanche</div>';
+  }
   $("raceBanner").innerHTML = html;
 }
 
@@ -2219,6 +2425,8 @@ function animate(){
     const spin = playing ? 0.85 : 0.22;
     for(const r of drone.userData.rotors) r.rotation.y += spin;
   }
+  followCamera();
+  drawMinimap();
   if(controls) controls.update();
   if(renderer) renderer.render(scene, camera);
 }
@@ -2229,10 +2437,21 @@ $("race").addEventListener("click", startRace);
 $("play").addEventListener("click", ()=>{ if(raceActive){ stopRace(); play(true); } else play(!playing); });
 $("scrub").addEventListener("input", e=>{ play(false); cur=parseInt(e.target.value,10)||0; render(); });
 $("speed").addEventListener("change", ()=>{ lastTs=performance.now(); });
-$("reset").addEventListener("click", ()=>{ $("code").value = DEFAULT_CODE; });
+$("example").addEventListener("change", (e)=>{
+  const key = e.target.value;
+  if(key && EXAMPLES[key] != null){
+    stopRace();
+    $("code").value = EXAMPLES[key];
+    saveCode();
+    runSim();
+  }
+  e.target.value = "";   // Dropdown wieder auf "– wählen –"
+});
 $("share").addEventListener("click", shareLink);
-$("sensChk").addEventListener("change", ()=>{ if(traj.length) render(); });
-$("collChk").addEventListener("change", runSim);   // Kollision an/aus -> neu rechnen
+$("code").addEventListener("input", saveCode);   // Codeaenderungen automatisch speichern
+$("sensChk").addEventListener("change", ()=>{ saveSettings(); if(traj.length) render(); });
+$("collChk").addEventListener("change", ()=>{ saveSettings(); runSim(); });   // Kollision an/aus -> neu rechnen
+$("followChk").addEventListener("change", saveSettings);
 
 // Parcours-Editor
 $("editToggle").addEventListener("click", toggleEditMode);
@@ -2243,7 +2462,7 @@ $("delSel").addEventListener("click", deleteSelected);
 $("selH").addEventListener("input", e => onSelHeight(e.target.value));
 $("selR").addEventListener("input", e => onSelRadius(e.target.value));
 for(const id of ["tblW","tblD","tblH","tblC"]) $(id).addEventListener("input", onTableField);
-$("roomChk").addEventListener("change", onRoomChange);
+$("roomChk").addEventListener("change", ()=>{ onRoomChange(); saveSettings(); });
 $("roomL").addEventListener("input", onRoomChange);
 $("roomW").addEventListener("input", onRoomChange);
 $("roomH").addEventListener("input", onRoomChange);
@@ -2251,6 +2470,80 @@ setRoomInputs();
 $("applyEdit").addEventListener("click", applyEdits);
 
 const DEFAULT_CODE = $("code").value;
+
+// ── Beispiel-Kurse (jeder bringt seinen eigenen Parcours im Code mit) ──
+const EX_PARKOUR = `# === TISCH-PARKOUR ===  unter Tisch 1 durch (tief), ueber Tisch 2 weg (hoch), durchs Ziel-Tor.
+TABLES = [
+    {'x': 1.5, 'y': 0.0, 'w': 0.7, 'd': 1.2, 'h': 1.30, 'clearance': 0.70},  # Tisch 1: DRUNTER durch
+    {'x': 3.0, 'y': 0.0, 'w': 0.7, 'd': 1.2, 'h': 0.50, 'clearance': 0.00},  # Tisch 2: DRUEBER weg
+]
+RINGS = [{'x': 4.5, 'y': 0.0, 'z': 0.90, 'r': 0.45}]   # Ziel-Tor
+OBSTACLES = []
+ROOM = {'length': 6.0, 'width': 3.0, 'height': 2.0, 'x0': -0.5}
+
+LOW, HIGH = 0.40, 0.90
+START_HEIGHT = LOW
+SPEED = 0.6
+
+def flight(mc, mr):
+    import time
+    def goto(tx, ty, tz, tol=0.08):
+        for _ in range(3000):
+            dx, dy, dz = tx - mc.x, ty - mc.y, tz - mc.z
+            dist = (dx*dx + dy*dy + dz*dz) ** 0.5
+            if dist < tol:
+                break
+            k = min(SPEED, dist * 1.6) / dist
+            mc.start_linear_motion(dx*k, dy*k, dz*k)
+            time.sleep(0.1)
+        mc.stop()
+    goto(0.8, 0.0, LOW)    # tief anfliegen
+    goto(2.2, 0.0, LOW)    # unter Tisch 1 hindurch
+    goto(2.4, 0.0, HIGH)   # aufsteigen
+    goto(3.8, 0.0, HIGH)   # ueber Tisch 2 hinweg
+    goto(4.5, 0.0, HIGH)   # durch das Ziel-Tor
+    goto(5.2, 0.0, HIGH)   # hinausfliegen
+    mc.stop()
+`;
+
+const EX_SLALOM = `# === RINGE-SLALOM ===  durch die Ringe fliegen (werden gruen), Saeulen ausweichen.
+RINGS = [
+    {'x': 1.2, 'y':  0.0, 'z': 1.2, 'r': 0.45},
+    {'x': 2.8, 'y': -0.7, 'z': 0.8, 'r': 0.45},
+    {'x': 4.4, 'y':  0.7, 'z': 1.4, 'r': 0.45},
+    {'x': 6.0, 'y':  0.0, 'z': 0.9, 'r': 0.45},
+]
+OBSTACLES = [
+    {'x': 1.9, 'y':  0.5, 'r': 0.18, 'h': 1.8},
+    {'x': 3.6, 'y': -0.8, 'r': 0.18, 'h': 1.8},
+    {'x': 5.2, 'y':  0.9, 'r': 0.18, 'h': 1.8},
+]
+TABLES = []
+ROOM = {'length': 8.0, 'width': 4.0, 'height': 2.5, 'x0': -0.6}
+
+START_HEIGHT = 1.2
+SPEED = 0.7
+
+def flight(mc, mr):
+    import time
+    def goto(tx, ty, tz, tol=0.1):
+        while True:
+            dx, dy, dz = tx - mc.x, ty - mc.y, tz - mc.z
+            dist = (dx*dx + dy*dy + dz*dz) ** 0.5
+            if dist < tol:
+                break
+            k = min(SPEED, dist * 1.6) / dist
+            mc.start_linear_motion(dx*k, dy*k, dz*k)
+            time.sleep(0.1)
+    for g in RINGS:
+        goto(g['x'], g['y'], g['z'])
+    last = RINGS[-1]
+    goto(last['x'] + 0.7, last['y'], last['z'])
+    mc.stop()
+`;
+
+const EXAMPLES = { racing: DEFAULT_CODE, parkour: EX_PARKOUR, slalom: EX_SLALOM };
+
 initThree();   // 3D-Szene starten (läuft auch ohne Simulation)
 boot();        // Pyodide laden, dann Beispiel rechnen
 </script>
