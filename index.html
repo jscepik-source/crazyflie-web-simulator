@@ -49,6 +49,13 @@
   #scene{width:100%; height:460px; background:var(--screen); border:1px solid var(--edge2); border-radius:8px; overflow:hidden; position:relative; cursor:grab}
   #scene:active{cursor:grabbing}
   #scene canvas{display:block}
+  #raceBanner{position:absolute; top:10px; left:50%; transform:translateX(-50%); z-index:5; display:none;
+    background:rgba(255,255,255,.93); border:1px solid var(--edge2); border-radius:10px; padding:8px 12px;
+    font-size:12px; box-shadow:0 2px 12px rgba(20,40,80,.18); min-width:190px; pointer-events:none}
+  #raceBanner .rb-title{font-weight:700; color:var(--blue); margin-bottom:5px; font-size:12.5px; text-align:center}
+  #raceBanner .rb-row{display:flex; align-items:center; gap:6px; padding:1px 0}
+  #raceBanner .rb-dot{width:10px; height:10px; border-radius:50%; display:inline-block; flex:0 0 auto}
+  #raceBanner .rb-st{margin-left:auto; color:var(--dim); font-variant-numeric:tabular-nums}
   .readouts{display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:10px}
   .ro{background:var(--screen); border:1px solid var(--edge); border-radius:8px; padding:7px 9px}
   .ro .k{color:var(--dim); font-size:10px; letter-spacing:.5px}
@@ -84,51 +91,535 @@
     <div class="col">
       <div class="panel">
         <div class="ttl">FLUGCODE  (Python)</div>
-        <textarea id="code" spellcheck="false"># === TISCH-PARCOURS ===  einfache, gerade Route (x = vorne):
-#   1) UNTER Tisch 1 durch (tief fliegen)
-#   2) UEBER Tisch 2 hinweg (hoch fliegen)
-#   3) durch das Ziel-Tor
-# Tipp: oben "Parcours bearbeiten" -> Tische/Tor mit der Maus ziehen, dann "Uebernehmen".
-# Kollision ist an: bei falscher Hoehe stoppt die Drohne am Tisch und kommt nicht durch.
+        <textarea id="code" spellcheck="false"># === racing.py ===  echter Crazyflie-Hardware-Code, hier im Simulator lauffaehig.
+# Der Kurs (zwei Tische) kommt aus dem Simulator; der Front-Sensor erkennt sie.
+# Tipp: Button 'Race Mode' startet 3 Drohnen um die Wette auf dieser Mission.
 
-TABLES = [
-    {'x': 1.5, 'y': 0.0, 'w': 0.7, 'd': 1.2, 'h': 1.30, 'clearance': 0.70},  # Tisch 1: DRUNTER durch
-    {'x': 3.0, 'y': 0.0, 'w': 0.7, 'd': 1.2, 'h': 0.50, 'clearance': 0.00},  # Tisch 2: DRUEBER weg
-]
-RINGS = [
-    {'x': 4.5, 'y': 0.0, 'z': 0.90, 'r': 0.45},   # Ziel-Tor
-]
-OBSTACLES = []
-ROOM = {'length': 6.0, 'width': 3.0, 'height': 2.0, 'x0': -0.5}
+"""
+Aufgabe 3: Hindernis-Unterflug mit Rückkehr über den Tisch
+===========================================================
+Hardware:  Crazyflie 2.x + Flow Deck v2 + Multi-ranger Deck
 
-LOW   = 0.40   # Hoehe, um unter Tisch 1 durchzufliegen
-HIGH  = 0.90   # Hoehe, um ueber Tisch 2 zu fliegen
-START_HEIGHT = LOW
-SPEED = 0.6
+ABLAUF:
+  1.  Takeoff auf 0.70 m
+  ── 1. Hindernis ──────────────────────────────────
+  2.  Vorwärts bis Hindernis erkannt (&lt; 60 cm)
+  3.  5 cm zurückweichen
+  4.  35 cm absteigen  (-&gt; 0.35 m)
+  5.  1.35 m vorwärts  (unter 1. Hindernis hindurch)
+  ── Zwischenstufe ─────────────────────────────────
+  6.  Auf 0.70 m steigen
+  ── 2. Hindernis ──────────────────────────────────
+  7.  Vorwärts bis Hindernis erkannt (&lt; 60 cm)
+  8.  5 cm zurückweichen
+  9.  35 cm absteigen  (-&gt; 0.35 m)
+  10. 1.35 m vorwärts  (unter 2. Hindernis hindurch)
+  ── Rückkehr ──────────────────────────────────────
+  11. 50 cm aufsteigen (-&gt; 0.85 m)
+  12. 90° Linksdrehung
+  13. 1.5 m vorwärts
+  14. 90° Linksdrehung
+  15. 1.5 m vorwärts
+  16. Landen
 
-def flight(mc, mr):
-    import time
-    def goto(tx, ty, tz, tol=0.08):                    # fliegt geradlinig zum Zielpunkt
-        for _ in range(3000):
-            dx, dy, dz = tx - mc.x, ty - mc.y, tz - mc.z
-            dist = (dx*dx + dy*dy + dz*dz) ** 0.5
-            if dist < tol:
-                break
-            k = min(SPEED, dist * 1.6) / dist
-            mc.start_linear_motion(dx*k, dy*k, dz*k)
-            time.sleep(0.1)
-        mc.stop()
+GEÄNDERT (nur Hinderniserkennung):
+  - Entprellung zählt jetzt ECHTE Sensor-Frames (10 Hz) statt
+    50-Hz-Schleifendurchläufe. Vorher waren "3 Treffer in Folge"
+    in Wahrheit EIN Messwert, dreimal gelesen.
+  - Der kleinste je gemessene Front-Abstand wird protokolliert.
+    Bei einem Timeout siehst du sofort, ob der Sensor das Hindernis
+    NIE gesehen hat (Strahl geht durch die Lücke / an der Kante
+    vorbei -&gt; Flughöhe anpassen) oder ob nur die Schwelle zu
+    knapp war (-&gt; OBSTACLE_MM erhöhen).
+"""
 
-    goto(0.8, 0.0, LOW)    # tief anfliegen
-    goto(2.2, 0.0, LOW)    # unter Tisch 1 hindurch
-    goto(2.4, 0.0, HIGH)   # aufsteigen
-    goto(3.8, 0.0, HIGH)   # ueber Tisch 2 hinweg
-    goto(4.5, 0.0, HIGH)   # durch das Ziel-Tor
-    goto(5.2, 0.0, HIGH)   # hinausfliegen
-    mc.stop()
+import time
+import os
+import threading
+import logging
+
+import cflib.crtp
+from cflib.crazyflie import Crazyflie
+from cflib.crazyflie.syncCrazyflie import SyncCrazyflie
+from cflib.crazyflie.log import LogConfig
+from cflib.utils import uri_helper
+
+logging.basicConfig(level=logging.ERROR)
+
+# ── Verbindung ─────────────────────────────────────────────────────────────────
+URI       = uri_helper.uri_from_env(default='radio://0/80/2M/E7E7E7E705')
+CACHE_DIR = os.path.join(os.path.dirname(__file__), 'cache')
+
+# ── Schwellwerte &amp; Flugparameter ───────────────────────────────────────────────
+OBSTACLE_MM    = 500    # Hindernis erkannt wenn Front &lt; 600 mm (früh stoppen!)
+START_HEIGHT   = 0.72   # Starthöhe [m]
+DOWN_STEP      = 0.35   # Abstieg vor dem Unterflug [m]
+UP_STEP        = 0.50   # Aufstieg nach dem Unterflug [m]
+UNDER_DIST     = 1.30   # Strecke unter dem Hindernis [m]
+BACKOFF_DIST   = 0.05   # Rückweichen nach Erkennung [m]
+LEG1_DIST      = 0.5   # Vorwärtsstrecke nach 1. Drehung [m]
+LEG2_DIST      = 1.5   # Vorwärtsstrecke nach 2. Drehung [m]
+FWD_SPEED      = 0.25   # Suchgeschwindigkeit [m/s]
+MOVE_SPEED     = 0.45   # Manövergeschwindigkeit [m/s]
+VERT_SPEED     = 0.4   # Auf-/Abstiegsgeschwindigkeit [m/s]
+TURN_RATE      = 60     # Drehrate [°/s]
+SEARCH_TIMEOUT = 15.0   # max. Suchzeit für Hindernis [s]
+JUMP_MM        = 150    # zrange-Sprung &gt; 150 mm = Tischkante
+CTRL_DT        = 0.02   # Regeltakt 50 Hz [s]
+H_MIN, H_MAX   = 0.15, 2.0   # Grenzen der kommandierten Sollhöhe [m]
+
+# NEU: Entprellung in echten Sensor-Frames (Multi-ranger liefert 10 Hz,
+#      d. h. 2 Frames = 200 ms Bestätigungszeit)
+DEBOUNCE_FRAMES = 2
+
+SAFETY_MM = 300   # Sicherheitsabstand zu allen Hindernissen [mm] (30 cm)
+
+
+# ── Sensor-Reader (front + zrange, 50 Hz Log) ──────────────────────────────────
+
+class SensorReader:
+    """Liest Front-Abstand (Multi-ranger) und Bodenabstand (Flow Deck)."""
+
+    def __init__(self, cf):
+        self.front        = 9999   # mm; 9999 = kein Hindernis / kein Wert
+        self.back         = 9999
+        self.left         = 9999
+        self.right        = 9999
+        self.front_raw    = None   # mm; letzter Rohwert (für Diagnose)
+        self.zrange       = None   # mm; None = noch kein Wert
+        self.update_count = 0      # zählt empfangene Log-Pakete
+        self._lock        = threading.Lock()
+
+        # 5 × uint16_t = 10 Bytes — weit unter dem 26-Byte-Limit
+        log_cfg = LogConfig('Range', period_in_ms=20)
+        log_cfg.add_variable('range.front',  'uint16_t')
+        log_cfg.add_variable('range.back',   'uint16_t')
+        log_cfg.add_variable('range.left',   'uint16_t')
+        log_cfg.add_variable('range.right',  'uint16_t')
+        log_cfg.add_variable('range.zrange', 'uint16_t')
+
+        cf.log.add_config(log_cfg)
+        if not log_cfg.valid:
+            raise RuntimeError('Log-Konfiguration ungültig (Variable nicht im TOC?)')
+        log_cfg.data_received_cb.add_callback(self._on_data)
+        log_cfg.start()
+
+    @staticmethod
+    def _safe(val):
+        return val if (val is not None and 0 &lt; val &lt; 4000) else 9999
+
+    def _on_data(self, _, data, *__):
+        with self._lock:
+            self.update_count += 1
+            f = data.get('range.front')
+            if f is not None:
+                self.front_raw = f
+                self.front = self._safe(f)
+            self.back  = self._safe(data.get('range.back'))
+            self.left  = self._safe(data.get('range.left'))
+            self.right = self._safe(data.get('range.right'))
+            z = data.get('range.zrange')
+            if z is not None and 0 &lt; z &lt; 4000:
+                self.zrange = z
+
+    def get_front(self):
+        with self._lock:
+            return self.front
+
+    def get_back(self):
+        with self._lock:
+            return self.back
+
+    def get_left(self):
+        with self._lock:
+            return self.left
+
+    def get_right(self):
+        with self._lock:
+            return self.right
+
+    def get_front_raw(self):
+        with self._lock:
+            return self.front_raw
+
+    def get_zrange(self):
+        with self._lock:
+            return self.zrange
+
+    def get_update_count(self):
+        with self._lock:
+            return self.update_count
+
+
+# ── Flugsteuerung: direkte Hover-Setpoints (50 Hz) ─────────────────────────────
+
+class FlightController:
+    """
+    Steuert die Drohne direkt über send_hover_setpoint(vx, vy, yawrate, h).
+
+    h_cmd ist die kommandierte Sollhöhe über dem Untergrund. Sie wird von
+    allen Bewegungsmethoden gepflegt und kann bei Bedarf (Tischkante!)
+    schlagartig geändert werden — das kann der MotionCommander nicht.
+    """
+
+    def __init__(self, cf, sensors):
+        self.cf      = cf
+        self.sensors = sensors
+        self.h_cmd   = 0.0
+
+    # ── Sicherheitsfilter: blockiert Bewegung wenn Sensor &lt; SAFETY_MM ───────
+    def _safe_vel(self, vx, vy):
+        s = self.sensors
+        if vx &gt; 0 and s.get_front() &lt; SAFETY_MM:
+            print(f"[SAFETY] Front {s.get_front()} mm &lt; {SAFETY_MM} mm → vx gestoppt")
+            vx = 0
+        if vx &lt; 0 and s.get_back()  &lt; SAFETY_MM:
+            print(f"[SAFETY] Back  {s.get_back()} mm &lt; {SAFETY_MM} mm → vx gestoppt")
+            vx = 0
+        if vy &gt; 0 and s.get_left()  &lt; SAFETY_MM:
+            print(f"[SAFETY] Left  {s.get_left()} mm &lt; {SAFETY_MM} mm → vy gestoppt")
+            vy = 0
+        if vy &lt; 0 and s.get_right() &lt; SAFETY_MM:
+            print(f"[SAFETY] Right {s.get_right()} mm &lt; {SAFETY_MM} mm → vy gestoppt")
+            vy = 0
+        return vx, vy
+
+    # ── Basisbaustein: Setpoints für eine Dauer senden ────────────────────────
+    def _fly(self, vx, vy, yawrate, duration):
+        t_end = time.time() + duration
+        while time.time() &lt; t_end:
+            svx, svy = self._safe_vel(vx, vy)
+            self.cf.commander.send_hover_setpoint(svx, svy, yawrate, self.h_cmd)
+            time.sleep(CTRL_DT)
+
+    def hover(self, duration):
+        self._fly(0, 0, 0, duration)
+
+    # ── Takeoff / Landung ─────────────────────────────────────────────────────
+    def take_off(self, height):
+        print(f"[Takeoff] Steige auf {height:.2f} m ...")
+        # Sanft hochrampen
+        h = 0.10
+        self.h_cmd = h
+        while h &lt; height:
+            h = min(height, h + VERT_SPEED * CTRL_DT)
+            self.h_cmd = h
+            self.cf.commander.send_hover_setpoint(0, 0, 0, self.h_cmd)
+            time.sleep(CTRL_DT)
+        self.hover(2.0)   # stabilisieren
+
+    def land(self):
+        print("[Landung] Leite Landung ein ...")
+        while self.h_cmd &gt; 0.08:
+            self.h_cmd = max(0.05, self.h_cmd - VERT_SPEED * CTRL_DT)
+            self.cf.commander.send_hover_setpoint(0, 0, 0, self.h_cmd)
+            time.sleep(CTRL_DT)
+        self.cf.commander.send_stop_setpoint()
+        time.sleep(0.5)
+
+    # ── Horizontale Bewegungen (Distanz = Geschwindigkeit × Zeit) ─────────────
+    def forward(self, dist, speed=MOVE_SPEED):
+        self._fly(speed, 0, 0, dist / speed)
+        self.hover(0.8)
+
+    def back(self, dist, speed=MOVE_SPEED):
+        self._fly(-speed, 0, 0, dist / speed)
+        self.hover(0.8)
+
+    # ── Vertikale Bewegungen ──────────────────────────────────────────────────
+    def _change_height(self, delta):
+        target = max(H_MIN, min(H_MAX, self.h_cmd + delta))
+        step = VERT_SPEED * CTRL_DT * (1 if delta &gt; 0 else -1)
+        while abs(target - self.h_cmd) &gt; abs(step):
+            self.h_cmd += step
+            self.cf.commander.send_hover_setpoint(0, 0, 0, self.h_cmd)
+            time.sleep(CTRL_DT)
+        self.h_cmd = target
+        self.hover(0.8)
+
+    def up(self, dist):
+        self._change_height(+dist)
+
+    def down(self, dist):
+        self._change_height(-dist)
+
+    # ── Drehung auf der Stelle ────────────────────────────────────────────────
+    def turn_right(self, angle, rate=TURN_RATE):
+        self._fly(0, 0, -rate, angle / rate)   # negative yawrate = rechts (CW)
+        self.hover(1.0)
+
+    def turn_left(self, angle, rate=TURN_RATE):
+        self._fly(0, 0, +rate, angle / rate)   # positive yawrate = links (CCW)
+        self.hover(1.0)
+
+    # ══════════════════════════════════════════════════════════════════════════
+    # NEU: Verbesserte Hinderniserkennung
+    # ══════════════════════════════════════════════════════════════════════════
+    def forward_until_obstacle(self, speed=FWD_SPEED, timeout=SEARCH_TIMEOUT):
+        """
+        Fliegt vorwärts bis der Front-Sensor ein Hindernis bestätigt.
+
+        VERBESSERUNG 1 — Entprellung über echte Sensor-Frames:
+          Der Multi-ranger liefert nur alle 100 ms einen neuen Wert,
+          die Regelschleife läuft aber mit 50 Hz. Die alte Entprellung
+          (3 Schleifendurchläufe) prüfte deshalb denselben Messwert
+          mehrfach. Jetzt wird über update_count erkannt, wann WIRKLICH
+          ein neues Sensorpaket angekommen ist — erst DEBOUNCE_FRAMES
+          neue Frames in Folge unter der Schwelle gelten als Treffer.
+
+        VERBESSERUNG 2 — Diagnose bei Timeout:
+          Der kleinste je gemessene Front-Abstand wird mitgeschrieben.
+          Nach einem Timeout wird ausgegeben, ob der Sensor das
+          Hindernis überhaupt gesehen hat — damit lässt sich
+          unterscheiden: Schwelle zu knapp / Messung flackert /
+          Strahl trifft das Hindernis gar nicht (Flughöhe!).
+        """
+        start_front = self.sensors.get_front()
+        print(f"[Suche] Front-Abstand beim Start: "
+              f"{'frei/ungültig' if start_front &gt;= 9999 else f'{start_front:.0f} mm'}")
+
+        if start_front &lt; OBSTACLE_MM:
+            print(f"[Suche] WARNUNG: Schon beim Start ist etwas näher als "
+                  f"{OBSTACLE_MM} mm vor der Drohne!")
+            print(f"[Suche]          → Drohne weiter vom Hindernis entfernt starten"
+                  f" oder OBSTACLE_MM verkleinern.")
+
+        print(f"[Suche] Fliege vorwärts, suche Hindernis (&lt; {OBSTACLE_MM} mm) ...")
+        t_end        = time.time() + timeout
+        found        = False
+        below_frames = 0
+        last_count   = self.sensors.get_update_count()
+        last_status  = time.time()
+        min_front    = 9999   # kleinster je gemessener Front-Abstand
+
+        while time.time() &lt; t_end:
+            # Nur auswerten, wenn ein NEUES Sensorpaket angekommen ist
+            count = self.sensors.get_update_count()
+            if count != last_count:
+                last_count = count
+                front = self.sensors.get_front()
+                min_front = min(min_front, front)
+
+                if front &lt; OBSTACLE_MM:
+                    below_frames += 1
+                    if below_frames &gt;= DEBOUNCE_FRAMES:
+                        found = True
+                        print(f"\n[Suche] Hindernis bestätigt "
+                              f"({DEBOUNCE_FRAMES} Frames in Folge)! "
+                              f"Abstand: {front:.0f} mm")
+                        break
+                else:
+                    below_frames = 0
+
+            # Statusausgabe 1x pro Sekunde (zur Diagnose)
+            if time.time() - last_status &gt; 1.0:
+                f   = self.sensors.get_front()
+                raw = self.sensors.get_front_raw()
+                txt = f'{f:.0f} mm' if f &lt; 9999 else \
+                      f'frei (roh: {raw if raw is not None else "---"})'
+                print(f"[Suche] front = {txt}")
+                last_status = time.time()
+
+            svx, _ = self._safe_vel(speed, 0)
+            self.cf.commander.send_hover_setpoint(svx, 0, 0, self.h_cmd)
+            time.sleep(CTRL_DT)
+
+        self.hover(1.0)   # sofort anhalten &amp; ausschwingen
+
+        if not found:
+            print("[Suche] Timeout — kein Hindernis bestätigt.")
+            if min_front &gt;= 9999:
+                print("[Diagnose] Sensor hat während der GESAMTEN Suche nie etwas")
+                print("           &lt; 4 m gesehen → Strahl trifft das Hindernis nicht")
+                print("           (Flughöhe = Höhe der Lücke/dünnen Kante?) oder die")
+                print("           Drohne fliegt seitlich vorbei. START_HEIGHT anpassen")
+                print("           oder Hindernis-Front vergrößern (Karton).")
+            elif min_front &lt; OBSTACLE_MM:
+                print(f"[Diagnose] Kleinster Wert: {min_front:.0f} mm — lag unter der")
+                print(f"           Schwelle, aber nicht {DEBOUNCE_FRAMES} Frames in")
+                print("           Folge (Messung flackert, kleines/schräges Ziel).")
+                print("           → DEBOUNCE_FRAMES auf 1 senken oder Ziel vergrößern.")
+            else:
+                print(f"[Diagnose] Kleinster Wert: {min_front:.0f} mm (Schwelle:")
+                print(f"           {OBSTACLE_MM} mm) — Sensor sieht das Hindernis,")
+                print("           kam aber nie unter die Schwelle. OBSTACLE_MM")
+                print("           erhöhen oder SEARCH_TIMEOUT verlängern.")
+        return found
+    # ══════════════════════════════════════════════════════════════════════════
+    # Ende der geänderten Hinderniserkennung
+    # ══════════════════════════════════════════════════════════════════════════
+
+    # ── Vorwärts mit konstanter ABSOLUTER Höhe (über den Tisch!) ──────────────
+    def forward_hold_altitude(self, dist, speed=MOVE_SPEED):
+        """
+        Fliegt vorwärts und hält die absolute Höhe konstant.
+
+        Bei jedem zrange-Sprung &gt; JUMP_MM (Tischkante!) wird h_cmd
+        SOFORT um die Sprunghöhe korrigiert — kein Rampen, kein
+        Hinterherlaufen. Die Firmware sieht dadurch nie eine
+        Höhenabweichung und steigt nicht auf.
+        """
+        print(f"[Höhenhaltung] {dist*100:.0f} cm vorwärts mit Terrainkompensation ...")
+        last_z = self.sensors.get_zrange()
+        flown  = 0.0
+        while flown &lt; dist:
+            z = self.sensors.get_zrange()
+            if z is not None and last_z is not None:
+                delta_mm = last_z - z            # &gt; 0: Untergrund kam näher (Tisch)
+                if abs(delta_mm) &gt; JUMP_MM:
+                    self.h_cmd = max(H_MIN, min(H_MAX, self.h_cmd - delta_mm / 1000.0))
+                    art = "TISCH erkannt" if delta_mm &gt; 0 else "Tisch verlassen"
+                    print(f"[Höhenhaltung] zrange-Sprung {delta_mm:+.0f} mm → {art}, "
+                          f"neue Sollhöhe {self.h_cmd:.2f} m (über Untergrund)")
+            if z is not None:
+                last_z = z
+
+            svx, _ = self._safe_vel(speed, 0)
+            self.cf.commander.send_hover_setpoint(svx, 0, 0, self.h_cmd)
+            time.sleep(CTRL_DT)
+            flown += speed * CTRL_DT
+
+        self.hover(0.8)
+        print("[Höhenhaltung] Strecke abgeschlossen.")
+
+
+# ── Kalman-Reset ───────────────────────────────────────────────────────────────
+
+def reset_estimator(cf):
+    print("[Kalibrierung] Kalman-Filter wird zurückgesetzt ...")
+    cf.param.set_value('kalman.resetEstimation', '1')
+    time.sleep(0.1)
+    cf.param.set_value('kalman.resetEstimation', '0')
+    time.sleep(2.0)
+    print("[Kalibrierung] Fertig.")
+
+
+# ── Hauptprogramm ──────────────────────────────────────────────────────────────
+
+def run_mission():
+    cflib.crtp.init_drivers()
+    print(f"[Verbindung] Verbinde mit {URI} ...")
+
+    with SyncCrazyflie(URI, cf=Crazyflie(rw_cache=CACHE_DIR)) as scf:
+        print("[Verbindung] Verbunden!\n")
+
+        # Deck-Erkennung
+        flow_ok, multi_ok = threading.Event(), threading.Event()
+        scf.cf.param.add_update_callback(
+            group='deck', name='bcFlow2',
+            cb=lambda _, v: flow_ok.set() if int(v) else None)
+        scf.cf.param.add_update_callback(
+            group='deck', name='bcMultiranger',
+            cb=lambda _, v: multi_ok.set() if int(v) else None)
+        if not flow_ok.wait(timeout=5):
+            raise RuntimeError('Flow Deck v2 nicht erkannt — Abbruch')
+        if not multi_ok.wait(timeout=5):
+            raise RuntimeError('Multi-ranger Deck nicht erkannt — Abbruch')
+        print("[Deck] Flow Deck v2 + Multi-ranger erkannt.\n")
+
+        reset_estimator(scf.cf)
+
+        sensors = SensorReader(scf.cf)
+        time.sleep(0.5)
+
+        scf.cf.platform.send_arming_request(True)
+        time.sleep(1.0)
+
+        fc = FlightController(scf.cf, sensors)
+
+        try:
+            # ── ABLAUF ────────────────────────────────────────────────────────
+            # Schritt 1: Takeoff auf 0.70 m
+            fc.take_off(START_HEIGHT)
+
+            # Schritt 2: Vorwärts fliegen, bis Front-Sensor Hindernis
+            #            bestätigt (&lt; 60 cm, entprellt über Sensor-Frames)
+            if fc.forward_until_obstacle():
+
+                # ── 1. Hindernis ─────────────────────────────────────────────
+                # Schritt 3: zurückweichen
+                print(f"[Manöver] 1/13: {BACKOFF_DIST*100:.0f} cm zurückweichen")
+                fc.back(BACKOFF_DIST)
+
+                # Schritt 4: 35 cm absteigen (0.70 m -&gt; 0.35 m)
+                print(f"[Manöver] 2/13: {DOWN_STEP*100:.0f} cm absteigen "
+                      f"(-&gt; {START_HEIGHT-DOWN_STEP:.2f} m)")
+                fc.down(DOWN_STEP)
+
+                # Schritt 5: unter 1. Hindernis hindurch
+                d = UNDER_DIST + BACKOFF_DIST
+                print(f"[Manöver] 3/13: {d*100:.0f} cm vorwärts (unter 1. Hindernis)")
+                fc.forward(d)
+
+                # ── Zwischenstufe: auf 0.70 m steigen ────────────────────────
+                # Schritt 6
+                print(f"[Manöver] 4/13: Auf {START_HEIGHT:.2f} m steigen")
+                fc.up(DOWN_STEP)   # 0.35 → 0.70 m
+
+                # ── 2. Hindernis ─────────────────────────────────────────────
+                # Schritt 7: vorwärts bis 2. Hindernis
+                print("[Manöver] 5/13: Vorwärts — suche 2. Hindernis ...")
+                obstacle2 = fc.forward_until_obstacle()
+
+                if obstacle2:
+                    # Schritt 8: zurückweichen
+                    print(f"[Manöver] 6/13: {BACKOFF_DIST*100:.0f} cm zurückweichen")
+                    fc.back(BACKOFF_DIST)
+
+                    # Schritt 9: 35 cm absteigen (0.70 m -&gt; 0.35 m)
+                    print(f"[Manöver] 7/13: {DOWN_STEP*100:.0f} cm absteigen "
+                          f"(-&gt; {START_HEIGHT-DOWN_STEP:.2f} m)")
+                    fc.down(DOWN_STEP)
+
+                    # Schritt 10: unter 2. Hindernis hindurch
+                    print(f"[Manöver] 8/13: {d*100:.0f} cm vorwärts (unter 2. Hindernis)")
+                    fc.forward(d)
+                else:
+                    print("[Mission] 2. Hindernis nicht gefunden — weiter mit Rückkehr.")
+
+                # ── Rückkehr ─────────────────────────────────────────────────
+                # Schritt 11: aufsteigen auf Zielhöhe (0.85 m)
+                h_target = START_HEIGHT - DOWN_STEP + UP_STEP   # 0.85 m
+                h_delta  = h_target - fc.h_cmd
+                print(f"[Manöver] 9/13: {h_delta*100:.0f} cm aufsteigen "
+                      f"(-&gt; {h_target:.2f} m)")
+                fc.up(h_delta)
+
+                # Schritt 12: 90° Linksdrehung
+                print("[Manöver] 10/13: 90° Linksdrehung")
+                fc.turn_left(90)
+
+                # Schritt 13: vorwärts
+                print(f"[Manöver] 11/13: {LEG1_DIST*100:.0f} cm vorwärts")
+                fc.forward(LEG1_DIST, speed=0.2)
+
+                # Schritt 14: 90° Linksdrehung
+                print("[Manöver] 12/13: 90° Linksdrehung")
+                fc.turn_left(90)
+
+                # Schritt 15: vorwärts
+                print(f"[Manöver] 13/13: {LEG2_DIST*100:.0f} cm vorwärts")
+                fc.forward(LEG2_DIST, speed=0.2)
+
+            else:
+                print("[Mission] 1. Hindernis nicht gefunden — lande direkt.")
+
+        finally:
+            # Schritt 11: Landung — läuft auch bei Fehlern im Manöver
+            fc.land()
+
+        print("\n[Fertig] Mission abgeschlossen.")
+
+
+if __name__ == '__main__':
+    try:
+        run_mission()
+    except Exception as e:
+        print(f"[Fehler] {e}")
 </textarea>
         <div class="btnrow">
           <button id="run" class="primary" disabled>▶ Simulieren</button>
+          <button id="race" disabled>🏁 Race Mode</button>
           <button id="reset">Beispiel laden</button>
           <button id="share">🔗 Teilen</button>
           <span id="status">Lade Python-Laufzeit …</span>
@@ -141,7 +632,7 @@ def flight(mc, mr):
     <div class="col">
       <div class="panel">
         <div class="ttl">FLUGBAHN</div>
-        <div id="scene"></div>
+        <div id="scene"><div id="raceBanner"></div></div>
         <div class="legend"><b>3D-Ansicht</b> &nbsp; ziehen = drehen · scrollen = zoom · Rechtsklick-ziehen = verschieben &nbsp;|&nbsp; Bahnfarbe = Höhe</div>
         <div class="editbar">
           <button id="editToggle">✎ Parcours bearbeiten</button>
@@ -234,7 +725,7 @@ class MotionCommander:
     """Kinematische Nachbildung der cflib MotionCommander (Body-Frame, yaw-aware)."""
     MAX_POINTS = 60000
 
-    def __init__(self, default_height=0.5, default_velocity=0.3):
+    def __init__(self, default_height=0.5, default_velocity=0.3, takeoff=True):
         self.default_height = float(default_height)
         self.default_velocity = float(default_velocity)
         self.dt = 0.05
@@ -242,11 +733,21 @@ class MotionCommander:
         self.yaw = 0.0
         self._vel = (0.0, 0.0, 0.0)   # Body-Frame-Geschwindigkeit für start_linear_motion
         self._yawrate = 0.0
+        self._target_h = None         # Soll-Hoehe fuer send_hover_setpoint (None = vz-Modus)
         self.t = 0.0
         self._phase = 'takeoff'
         self.traj = []
         self._record(0.0, 0.0, 0.0)
-        self._move(0.0, 0.0, self.default_height, self.default_velocity, 'takeoff')
+        if takeoff:
+            self._move(0.0, 0.0, self.default_height, self.default_velocity, 'takeoff')
+
+    # ── Low-Level-Hover (fuer send_hover_setpoint): Body-vel + absolute Sollhoehe ──
+    def set_hover(self, vx, vy, yawrate_deg, height):
+        f = _RACE_FACTOR
+        self._vel = (float(vx)*f, float(vy)*f, 0.0)
+        self._yawrate = math.radians(float(yawrate_deg))
+        self._target_h = float(height)
+        self._phase = 'hover'
 
     def _record(self, vx, vy, vz):
         if len(self.traj) > self.MAX_POINTS:
@@ -262,7 +763,7 @@ class MotionCommander:
 
     def _move(self, dx, dy, dz, velocity=None, phase=''):
         velocity = float(velocity) if velocity else self.default_velocity
-        velocity = max(0.01, velocity)
+        velocity = max(0.01, velocity) * _RACE_FACTOR
         dist = math.sqrt(dx*dx + dy*dy + dz*dz)
         if dist < 1e-9:
             return
@@ -316,7 +817,8 @@ class MotionCommander:
 
     def start_linear_motion(self, vx, vy, vz, rate=0.0):
         # Kontinuierliche Steuerung (Body-Frame); wirkt waehrend time.sleep()/_advance()
-        self._vel = (float(vx), float(vy), float(vz))
+        f = _RACE_FACTOR
+        self._vel = (float(vx)*f, float(vy)*f, float(vz)*f)
         self._yawrate = math.radians(float(rate))
         self._phase = 'move'
 
@@ -325,17 +827,27 @@ class MotionCommander:
         self._yawrate = 0.0
 
     def _advance(self, duration):
-        # Integriert die aktuelle Geschwindigkeit ueber 'duration' Sekunden (von time.sleep)
-        n = max(1, int(round(float(duration) / self.dt)))
-        for _ in range(n):
+        # Integriert die aktuelle Geschwindigkeit ueber exakt 'duration' Sekunden (von time.sleep)
+        remaining = float(duration)
+        while remaining > 1e-9:
+            step = self.dt if remaining > self.dt else remaining
             vx, vy, vz = self._vel
             c, s = math.cos(self.yaw), math.sin(self.yaw)
             wx = vx*c - vy*s
             wy = vx*s + vy*c
-            self._step_to(wx*self.dt, wy*self.dt, vz*self.dt)
-            self.yaw += self._yawrate*self.dt
-            self.t += self.dt
-            self._record(wx, wy, vz)
+            if self._target_h is not None:            # Hover: Sollhoehe nachfuehren
+                dz = self._target_h - self.z
+                mx = 1.5 * step                       # max. 1.5 m/s vertikale Nachfuehrung
+                dz = max(-mx, min(mx, dz))
+            else:
+                dz = vz * step
+            self._step_to(wx*step, wy*step, dz)
+            self.yaw += self._yawrate*step
+            self.t += step
+            self._record(wx, wy, dz/step if step > 1e-9 else 0.0)
+            remaining -= step
+        for _lg in _SIM_LOGS:                          # Sensor-Log-Callbacks (racing.py) feuern
+            _lg._fire(self)
 
     def take_off(self, height=None, velocity=None):
         h = self.default_height if height is None else float(height)
@@ -539,6 +1051,8 @@ _RUN_OBSTACLES = []
 _RUN_TABLES = []
 _RUN_ROOM = None
 _RUN_COLLIDE = True
+_RACE_FACTOR = 1.0   # Geschwindigkeits-Multiplikator (Race-Mode: pro Drohne verschieden)
+_SIM_LOGS = []       # aktive LogConfigs (racing.py-Sensor-Log), pro _advance gefeuert
 _DRONE_R = 0.06   # halbe Drohnenbreite [m] – Sicherheitsabstand fuer Kollision
 
 def _collides(x, y, z):
@@ -562,6 +1076,7 @@ def _collides(x, y, z):
     return False
 
 class _Dummy:
+    def __init__(self, *a, **k): pass
     def __getattr__(self, n): return _Dummy()
     def __call__(self, *a, **k): return _Dummy()
     def __enter__(self): return self
@@ -582,6 +1097,93 @@ class _ShimMR(Multiranger):
     @mc.setter
     def mc(self, v): pass
 
+# ── Low-Level-cflib (send_hover_setpoint + Range-Log) fuer echten Hardware-Code ──
+
+def _sensor_mm(body):
+    """Range-Werte (mm) fuer den simulierten Multi-ranger + zrange (Bodenabstand)."""
+    mr = Multiranger(body, _RUN_OBSTACLES, _RUN_TABLES, _RUN_ROOM)
+    def mm(v):
+        return int(round(v * 1000)) if v is not None else 9999
+    return {
+        'range.front': mm(mr.front), 'range.back':  mm(mr.back),
+        'range.left':  mm(mr.left),  'range.right': mm(mr.right),
+        'range.up':    mm(mr.up),
+        'range.zrange': int(round(max(0.0, body.z) * 1000)),
+    }
+
+class _CB:
+    def __init__(self): self._cbs = []
+    def add_callback(self, cb): self._cbs.append(cb)
+    def remove_callback(self, cb):
+        if cb in self._cbs: self._cbs.remove(cb)
+    def call(self, *a):
+        for cb in list(self._cbs):
+            cb(*a)
+
+class _SimLogConfig:
+    """Ersatz fuer cflib LogConfig: liefert im Sim die Range-Werte an den Callback."""
+    def __init__(self, name='', period_in_ms=100, *a, **k):
+        self.name = name; self.period_in_ms = period_in_ms
+        self.valid = True; self.variables = []
+        self.data_received_cb = _CB(); self.error_cb = _CB()
+        self._started = False
+    def add_variable(self, name, fetch_as=None): self.variables.append(name)
+    def start(self):
+        self._started = True
+        if self not in _SIM_LOGS: _SIM_LOGS.append(self)
+    def stop(self):
+        self._started = False
+        if self in _SIM_LOGS: _SIM_LOGS.remove(self)
+    def delete(self): self.stop()
+    def _fire(self, body):
+        if not self._started: return
+        alld = _sensor_mm(body)
+        data = {k: alld.get(k, 0) for k in self.variables} if self.variables else alld
+        self.data_received_cb.call(int(body.t * 1000), data, self)
+
+class _SimLogAPI:
+    def add_config(self, cfg): pass          # Registrierung erledigt cfg.start()
+
+class _SimParam:
+    def set_value(self, *a, **k): pass
+    def get_value(self, *a, **k): return 0
+    def request_param_update(self, *a, **k): pass
+    def add_update_callback(self, group=None, name=None, cb=None):
+        # Deck-Erkennung: sofort "vorhanden" melden, damit .wait() nicht blockiert
+        if cb is not None:
+            try: cb('%s.%s' % (group, name), '1')
+            except Exception: pass
+
+class _SimPlatform:
+    def send_arming_request(self, *a, **k): pass
+    def get_protocol_version(self): return 0
+
+class _SimCommander:
+    def __init__(self, body): self._body = body
+    def send_hover_setpoint(self, vx, vy, yawrate, zdistance):
+        self._body.set_hover(vx, vy, yawrate, zdistance)
+    def send_position_setpoint(self, x, y, z, yaw):
+        self._body.set_hover(0.0, 0.0, 0.0, z)
+    def send_velocity_world_setpoint(self, vx, vy, vz, yawrate):
+        b = self._body; b._vel = (vx * _RACE_FACTOR, vy * _RACE_FACTOR, 0.0)
+        b._yawrate = math.radians(yawrate); b._target_h = max(0.0, b.z + vz * 0.1)
+    def send_setpoint(self, *a, **k): pass
+    def send_notify_setpoint_stop(self, *a, **k): pass
+    def send_stop_setpoint(self):
+        self._body.set_hover(0.0, 0.0, 0.0, 0.0)
+
+class _SimCF:
+    """Simulierte Crazyflie: commander/log/param/platform treiben die Sim-Drohne."""
+    def __init__(self):
+        global _ACTIVE_MC
+        body = MotionCommander(default_height=0.0, default_velocity=0.3, takeoff=False)
+        _ACTIVE_MC = body
+        self._body = body
+        self.commander = _SimCommander(body)
+        self.log = _SimLogAPI()
+        self.param = _SimParam()
+        self.platform = _SimPlatform()
+
 def _install_cflib_shim():
     import sys, types
     def M(name):
@@ -591,17 +1193,15 @@ def _install_cflib_shim():
     cz = M('cflib.crazyflie'); cz.Crazyflie = _Dummy; cflib.crazyflie = cz
     sc = M('cflib.crazyflie.syncCrazyflie')
     class SyncCrazyflie:
-        def __init__(self, uri=None, cf=None, *a, **k): pass
-        def __enter__(self): return _Dummy()
+        def __init__(self, uri=None, cf=None, *a, **k):
+            self.cf = _SimCF()
+        def __enter__(self): return self
         def __exit__(self, *a): return False
         def open_link(self): pass
         def close_link(self): pass
     sc.SyncCrazyflie = SyncCrazyflie; cz.syncCrazyflie = sc
     lg = M('cflib.crazyflie.log')
-    class LogConfig:
-        def __init__(self, *a, **k): pass
-        def add_variable(self, *a, **k): pass
-    lg.LogConfig = LogConfig; cz.log = lg
+    lg.LogConfig = _SimLogConfig; cz.log = lg
     syl = M('cflib.crazyflie.syncLogger')
     class SyncLogger:
         def __init__(self, *a, **k): pass
@@ -612,14 +1212,21 @@ def _install_cflib_shim():
     mcm = M('cflib.positioning.motion_commander'); mcm.MotionCommander = _ShimMC; pos.motion_commander = mcm
     ut = M('cflib.utils'); cflib.utils = ut
     mrm = M('cflib.utils.multiranger'); mrm.Multiranger = _ShimMR; ut.multiranger = mrm
+    uh = M('cflib.utils.uri_helper')
+    uh.uri_from_env = lambda default=None, *a, **k: default
+    ut.uri_helper = uh
 
 def _run():
-    global _ACTIVE_MC, _RUN_OBSTACLES, _RUN_TABLES, _RUN_ROOM, _RUN_COLLIDE
+    global _ACTIVE_MC, _RUN_OBSTACLES, _RUN_TABLES, _RUN_ROOM, _RUN_COLLIDE, _RACE_FACTOR
     _ACTIVE_MC = None
     try:
         _RUN_COLLIDE = bool(json.loads(COLLIDE_JSON)) if 'COLLIDE_JSON' in globals() else True
     except Exception:
         _RUN_COLLIDE = True
+    try:
+        _RACE_FACTOR = float(json.loads(RACE_FACTOR_JSON)) if 'RACE_FACTOR_JSON' in globals() else 1.0
+    except Exception:
+        _RACE_FACTOR = 1.0
     try:
         obstacles = json.loads(OBSTACLES_JSON) if 'OBSTACLES_JSON' in globals() and OBSTACLES_JSON else []
     except Exception:
@@ -639,10 +1246,16 @@ def _run():
     _RUN_OBSTACLES = obstacles
     _RUN_TABLES = tables
     _RUN_ROOM = room
+    del _SIM_LOGS[:]                      # Sensor-Logs vom letzten Lauf verwerfen
     _install_cflib_shim()
     import time as _t
-    _t.sleep = lambda secs=0.0: (_ACTIVE_MC._advance(secs) if _ACTIVE_MC is not None else None)  # treibt die Sim voran
-    ns = {'MotionCommander': MotionCommander, 'Multiranger': Multiranger}
+    _orig_sleep, _orig_time = _t.sleep, _t.time
+    # time.sleep treibt die Sim voran; time.time liefert die Sim-Uhr (fuer zeitbasierte Loops)
+    _t.sleep = lambda secs=0.0: (_ACTIVE_MC._advance(secs) if _ACTIVE_MC is not None else None)
+    _t.time  = lambda: (_ACTIVE_MC.t if _ACTIVE_MC is not None else 0.0)
+    # __name__/__file__ setzen, damit echte Skripte (if __name__=='__main__': ...) laufen
+    ns = {'MotionCommander': MotionCommander, 'Multiranger': Multiranger,
+          '__name__': '__main__', '__file__': 'racing.py'}
     try:
         exec(USER_CODE, ns)
         # Hindernisse/Ringe aus dem Editor-Code (OBSTACLES/RINGS = [...]) haben Vorrang
@@ -655,7 +1268,12 @@ def _run():
         if 'ROOM' in ns:
             room = _norm_room(ns['ROOM']); _RUN_ROOM = room
         fn = ns.get('flight') or ns.get('run_parkour') or ns.get('run') or ns.get('main')
-        if fn is not None:
+        if _ACTIVE_MC is not None:
+            # Der Code hat selbst geflogen (cflib-/Hardware-Stil, z. B. racing.py)
+            if _ACTIVE_MC.z > 1e-3: _ACTIVE_MC.land()
+            traj = _ACTIVE_MC.traj
+        elif fn is not None:
+            # Sim-Konvention: flight(mc, mr) definiert, aber nicht selbst gestartet
             height = ns.get('START_HEIGHT', 0.5)
             speed  = ns.get('FLY_SPEED', ns.get('SPEED', 0.3))
             mc = MotionCommander(default_height=height, default_velocity=speed)
@@ -667,16 +1285,15 @@ def _run():
             else: fn()
             if mc.z > 1e-3: mc.land()
             traj = mc.traj
-        elif _ACTIVE_MC is not None:
-            # cflib-Stil: der Code hat selbst eine Drohne erstellt und geflogen
-            if _ACTIVE_MC.z > 1e-3: _ACTIVE_MC.land()
-            traj = _ACTIVE_MC.traj
         else:
             raise RuntimeError("Keine 'flight(mc, mr)'-Funktion gefunden und kein MotionCommander erstellt.")
-        return json.dumps({'ok': True, 'traj': traj, 'obstacles': obstacles, 'rings': rings, 'tables': tables, 'room': room})
+        result = json.dumps({'ok': True, 'traj': traj, 'obstacles': obstacles, 'rings': rings, 'tables': tables, 'room': room})
     except Exception as e:
         msg = ''.join(traceback.format_exception_only(type(e), e)).strip()
-        return json.dumps({'ok': False, 'error': msg, 'trace': traceback.format_exc()})
+        result = json.dumps({'ok': False, 'error': msg, 'trace': traceback.format_exc()})
+    finally:
+        _t.sleep, _t.time = _orig_sleep, _orig_time
+    return result
 
 _run()
 `;
@@ -691,27 +1308,30 @@ let playing = false;
 let lastTs = 0;
 const DT = 0.05;
 let roomCfg = null;   // veraenderbare Raum-Parameter (Editor); aus ROOM initialisiert
+// ── Race-Mode-Zustand ──
+let raceActive = false;
+let raceRacers = [];      // [{traj,dur,rate,lane,color,name,mesh,trailLine,trailGeom,finished,finishAt}]
+let raceClock0 = 0;       // performance.now() beim Rennstart
+let raceDone = false;
 
 // Hindernis-Parcours (Säulen) – wird in 3D gezeichnet UND an Python (Multiranger) übergeben.
 // x = vorne, y = links, r = Radius, h = Höhe (alles in Metern).
-const OBSTACLES = [];
+const OBSTACLES = [];   // racing.py erkennt Hindernisse ueber den Front-Sensor (Tische)
 
 // Ringe (Tore) zum Durchfliegen – ebenfalls im Editor-Code (RINGS = [...]) aenderbar.
 // x = vorne, y = links, z = Höhe (Mittelpunkt), r = Radius (Meter).
-const RINGS = [
-  { x:4.5, y:0.0, z:0.9, r:0.45 },   // Ziel-Tor
-];
+const RINGS = [];
 
-// Tische – Box-Hindernisse, unter denen man durch- oder ueber die man hinwegfliegen kann.
+// Tische als Hindernisse fuer racing.py: der Front-Sensor erkennt sie, die Drohne fliegt drunter durch.
 // x = vorne, y = links (Mitte), w = Breite (x), d = Tiefe (y), h = Plattenhoehe, clearance = Unterkante.
 const TABLES = [
-  { x:1.5, y:0.0, w:0.7, d:1.2, h:1.30, clearance:0.70 },   // drunter durch
-  { x:3.0, y:0.0, w:0.7, d:1.2, h:0.50, clearance:0.00 },   // drueber weg
+  { x:1.3, y:0.0, w:0.4, d:0.8, h:1.05, clearance:0.50 },   // Hindernis 1: nach ~60 cm erkannt
+  { x:4.1, y:0.0, w:0.4, d:0.8, h:1.05, clearance:0.50 },   // Hindernis 2: nach ~1,50 m erkannt
 ];
 
 // Indoor-Raum (Waende + Decke) – der Multiranger erkennt die Waende.
 // Laenge = x (Flugrichtung), Breite = y (mittig), Hoehe = Decke. x0 = hintere Wand hinter dem Start.
-const ROOM = { length:6.0, width:3.0, height:2.0, x0:-0.5 };
+const ROOM = { length:6.0, width:3.0, height:2.5, x0:-0.6 };
 roomCfg = Object.assign({}, ROOM);
 
 // rechnet Raum-Parameter (length/width/height/x0) in Bounds {xmin,xmax,ymin,ymax,h} um
@@ -728,7 +1348,7 @@ async function boot(){
   try{
     pyodide = await loadPyodide();
     setStatus("Bereit. Code eingeben und ▶ Simulieren.", "ok");
-    $("run").disabled = false;
+    $("run").disabled = false; $("race").disabled = false;
     // geteilten Parcours aus der URL laden, falls vorhanden
     if(location.hash.indexOf('#c=') === 0){
       try{ $("code").value = decodeURIComponent(escape(atob(location.hash.slice(3)))); }catch(e){}
@@ -746,22 +1366,28 @@ function setStatus(msg, cls){
 }
 
 // ── Simulation ausführen ──
+// setzt alle Sim-Parameter und laesst den Python-Harness einmal laufen
+async function runHarness(){
+  pyodide.globals.set("USER_CODE", $("code").value);
+  pyodide.globals.set("OBSTACLES_JSON", JSON.stringify(OBSTACLES));
+  pyodide.globals.set("RINGS_JSON", JSON.stringify(RINGS));
+  pyodide.globals.set("TABLES_JSON", JSON.stringify(TABLES));
+  const roomOn = !$("roomChk") || $("roomChk").checked;
+  pyodide.globals.set("ROOM_JSON", JSON.stringify(roomOn ? roomCfg : null));
+  pyodide.globals.set("COLLIDE_JSON", JSON.stringify(!$("collChk") || $("collChk").checked));
+  return JSON.parse(await pyodide.runPythonAsync(HARNESS_PY));
+}
+
 async function runSim(){
   if(!pyodide) return;
+  stopRace();
   elErr.style.display = "none";
   setStatus("Rechne …", "");
   $("run").disabled = true;
   // kurzes Yield, damit der Status sichtbar wird
   await new Promise(r => setTimeout(r, 10));
   try{
-    pyodide.globals.set("USER_CODE", $("code").value);
-    pyodide.globals.set("OBSTACLES_JSON", JSON.stringify(OBSTACLES));
-    pyodide.globals.set("RINGS_JSON", JSON.stringify(RINGS));
-    pyodide.globals.set("TABLES_JSON", JSON.stringify(TABLES));
-    const roomOn = !$("roomChk") || $("roomChk").checked;
-    pyodide.globals.set("ROOM_JSON", JSON.stringify(roomOn ? roomCfg : null));
-    pyodide.globals.set("COLLIDE_JSON", JSON.stringify(!$("collChk") || $("collChk").checked));
-    const out = JSON.parse(await pyodide.runPythonAsync(HARNESS_PY));
+    const out = await runHarness();
     if(!out.ok){
       setStatus("Fehler im Flugcode.", "err");
       elErr.textContent = out.trace || out.error;
@@ -1427,6 +2053,144 @@ function drawSpeedChart(){
   ctx.setLineDash([]); ctx.globalAlpha = 1;
 }
 
+// ── Race-Mode: 3 Drohnen fliegen dieselbe Mission um die Wette ──────────────
+function hex6(c){ return '#' + c.toString(16).padStart(6,'0'); }
+
+// eine erkennbare Renn-Drohne (Detail-Drohne + farbiger Ring zur Unterscheidung)
+function buildRacer(color){
+  const g = buildDrone();
+  const ring = new THREE.Mesh(
+    new THREE.TorusGeometry(0.14, 0.018, 8, 30),
+    new THREE.MeshStandardMaterial({ color:color, emissive:color, emissiveIntensity:0.5,
+                                     metalness:0.3, roughness:0.4 }));
+  ring.rotation.x = Math.PI/2; ring.position.y = -0.03; g.add(ring);
+  return g;
+}
+
+// Position/Blickrichtung auf der Bahn zum Zeitpunkt t (interpoliert)
+function sampleTraj(tr, t){
+  if(t <= tr[0].t) return tr[0];
+  const last = tr[tr.length-1];
+  if(t >= last.t) return last;
+  let lo=0, hi=tr.length-1;
+  while(hi-lo > 1){ const m=(lo+hi)>>1; if(tr[m].t <= t) lo=m; else hi=m; }
+  const a=tr[lo], b=tr[hi], span=Math.max(1e-6, b.t-a.t), f=(t-a.t)/span;
+  return { x:a.x+(b.x-a.x)*f, y:a.y+(b.y-a.y)*f, z:a.z+(b.z-a.z)*f,
+           yaw:(a.yaw||0)+(((b.yaw||0)-(a.yaw||0))*f) };
+}
+
+function stopRace(){
+  for(const r of raceRacers){
+    scene.remove(r.mesh); disposeObj3D(r.mesh);
+    scene.remove(r.trailLine); r.trailGeom.dispose();
+  }
+  raceRacers = []; raceActive = false; raceDone = false;
+  if(drone) drone.visible = true;
+  if(trailLine) trailLine.visible = true;
+  if(poleLine) poleLine.visible = true;
+  const rb = $("raceBanner"); if(rb) rb.style.display = 'none';
+}
+
+async function startRace(){
+  if(!pyodide) return;
+  stopRace();
+  elErr.style.display = "none";
+  setStatus("🏁 Race Mode: rechne Mission …", "");
+  $("race").disabled = true; $("run").disabled = true;
+  await new Promise(r => setTimeout(r, 10));
+  let out;
+  try{ out = await runHarness(); }
+  catch(e){ setStatus("Race: unerwarteter Fehler.", "err"); elErr.textContent=String(e); elErr.style.display="block"; $("race").disabled=false; $("run").disabled=false; return; }
+  if(!out.ok){ setStatus("Race: Fehler im Flugcode.", "err"); elErr.textContent=out.trace||out.error; elErr.style.display="block"; $("race").disabled=false; $("run").disabled=false; return; }
+
+  // Szene aus dem Basislauf aufbauen
+  traj = out.traj;
+  if(out.obstacles) buildObstacles(out.obstacles);
+  if(out.tables) buildTables(out.tables);
+  syncRoomFromRun(out.room || null);
+  if(out.rings){ markRingsPassed(out.rings); buildRings(out.rings); }
+  updateScore(); computeBounds(); buildTrail();
+  $("run").disabled = false; $("race").disabled = false;
+  if(traj.length < 2){ setStatus("Bahn ist leer.", "err"); return; }
+
+  const base = traj, dur = base[base.length-1].t;
+  // normale Drohne + Bahn ausblenden
+  playing = false; $("play").textContent = "▶ Abspielen";
+  if(drone) drone.visible = false;
+  if(trailLine) trailLine.visible = false;
+  if(poleLine) poleLine.visible = false;
+  for(const l of sensorLines) l.visible = false;
+
+  const specs = [
+    { name:'Drohne 1', color:0x22b8d6, lane:-0.30 },
+    { name:'Drohne 2', color:0xe0489a, lane: 0.00 },
+    { name:'Drohne 3', color:0xe0a000, lane: 0.30 },
+  ];
+  raceRacers = specs.map(s => {
+    const mesh = buildRacer(s.color); scene.add(mesh);
+    // Bahn-Puffer (mit Spur-Versatz) einmal fuellen, dann per drawRange aufdecken
+    const pos = new Float32Array(base.length * 3);
+    for(let j=0;j<base.length;j++){
+      const p = base[j];
+      pos[j*3] = p.x; pos[j*3+1] = p.z; pos[j*3+2] = p.y + s.lane;
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setDrawRange(0, 1);
+    const line = new THREE.Line(g, new THREE.LineBasicMaterial({ color:s.color, transparent:true, opacity:0.85 }));
+    scene.add(line);
+    // Tempo pro Drohne leicht zufaellig -> Sieger variiert
+    const rate = 0.93 + Math.random() * 0.17;
+    return { base, dur, rate, lane:s.lane, color:s.color, name:s.name,
+             mesh, trailLine:line, trailGeom:g, finished:false, finishAt:0, _prog:0 };
+  });
+
+  raceActive = true; raceDone = false; raceClock0 = performance.now();
+  $("raceBanner").style.display = 'block';
+  setStatus("🏁 Race läuft …", "ok");
+}
+
+function updateRace(){
+  if(!raceActive || !raceRacers.length) return;
+  const dur = raceRacers[0].dur;
+  const sel = parseFloat($("speed").value) || 1;
+  const mult = (sel >= 999) ? 6 : sel;
+  const tempo = (dur / 10) * mult;            // Basis-Mission auf ~10 s / Tempo komprimieren
+  const elapsed = (performance.now() - raceClock0) / 1000 * tempo;
+
+  for(const r of raceRacers){
+    const localT = elapsed * r.rate;
+    const tt = Math.min(localT, r.dur);
+    const p = sampleTraj(r.base, tt);
+    r.mesh.position.copy(to3(p.x, p.y + r.lane, p.z));
+    r.mesh.rotation.y = -(p.yaw || 0);
+    if(r.mesh.userData.rotors) for(const rt of r.mesh.userData.rotors) rt.rotation.y += 0.9;
+    const idx = Math.min(r.base.length-1, Math.round((tt / r.dur) * (r.base.length-1)));
+    r.trailGeom.setDrawRange(0, idx+1);
+    r._prog = Math.min(1, localT / r.dur);
+    if(localT >= r.dur && !r.finished){ r.finished = true; r.finishAt = elapsed; }
+  }
+  updateRaceBanner();
+  if(raceRacers.every(r => r.finished)) raceDone = true;
+}
+
+function updateRaceBanner(){
+  const arr = raceRacers.slice().sort((a,b) => {
+    if(a.finished && b.finished) return a.finishAt - b.finishAt;
+    if(a.finished) return -1; if(b.finished) return 1;
+    return b._prog - a._prog;
+  });
+  const allDone = raceRacers.every(r => r.finished);
+  const medals = ['🥇','🥈','🥉'];
+  let html = '<div class="rb-title">' + (allDone ? ('🏁 ' + arr[0].name + ' gewinnt!') : '🏁 Race Mode') + '</div>';
+  arr.forEach((r,i) => {
+    const st = r.finished ? ('Ziel ' + r.finishAt.toFixed(1) + ' s') : (Math.round(r._prog*100) + ' %');
+    html += '<div class="rb-row"><span class="rb-dot" style="background:' + hex6(r.color) + '"></span>'
+          + (medals[i]||'&nbsp;') + ' ' + r.name + '<span class="rb-st">' + st + '</span></div>';
+  });
+  $("raceBanner").innerHTML = html;
+}
+
 // ── Animation ── eine durchgehende Schleife: Drehen/Zoomen geht auch bei Pause
 function play(state){
   if(!traj.length) return;
@@ -1439,7 +2203,9 @@ function play(state){
 }
 function animate(){
   requestAnimationFrame(animate);
-  if(playing && traj.length){
+  if(raceActive){
+    updateRace();
+  } else if(playing && traj.length){
     const now = performance.now();
     const speed = parseFloat($("speed").value);
     const dt = (now - lastTs)/1000; lastTs = now;
@@ -1449,7 +2215,7 @@ function animate(){
     update3D();
   }
   // Propeller drehen (immer; schneller wenn die Drohne fliegt)
-  if(drone && drone.userData.rotors){
+  if(drone && drone.visible && drone.userData.rotors){
     const spin = playing ? 0.85 : 0.22;
     for(const r of drone.userData.rotors) r.rotation.y += spin;
   }
@@ -1459,7 +2225,8 @@ function animate(){
 
 // ── Events ──
 $("run").addEventListener("click", runSim);
-$("play").addEventListener("click", ()=>play(!playing));
+$("race").addEventListener("click", startRace);
+$("play").addEventListener("click", ()=>{ if(raceActive){ stopRace(); play(true); } else play(!playing); });
 $("scrub").addEventListener("input", e=>{ play(false); cur=parseInt(e.target.value,10)||0; render(); });
 $("speed").addEventListener("change", ()=>{ lastTs=performance.now(); });
 $("reset").addEventListener("click", ()=>{ $("code").value = DEFAULT_CODE; });
