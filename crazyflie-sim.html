@@ -152,12 +152,12 @@ CACHE_DIR = os.path.join(os.path.dirname(__file__), 'cache')
 
 # ── Schwellwerte &amp; Flugparameter ───────────────────────────────────────────────
 OBSTACLE_MM    = 500    # Hindernis erkannt wenn Front &lt; 600 mm (früh stoppen!)
-START_HEIGHT   = 0.65   # Starthöhe [m] (unter die 0.70-m-Tische, damit der Front-Sensor sie sieht)
+START_HEIGHT   = 0.72   # Starthöhe [m] (im Platten-Band 0.70-0.75, damit der Front-Sensor die Tische sieht)
 DOWN_STEP      = 0.35   # Abstieg vor dem Unterflug [m]
 UP_STEP        = 0.50   # Aufstieg nach dem Unterflug [m]
-UNDER_DIST     = 1.30   # Strecke unter dem Hindernis [m]
+UNDER_DIST     = 1.50   # Strecke unter dem Hindernis [m]
 BACKOFF_DIST   = 0.05   # Rückweichen nach Erkennung [m]
-LEG1_DIST      = 0.5   # Vorwärtsstrecke nach 1. Drehung [m]
+LEG1_DIST      = 1.2   # Vorwärtsstrecke nach 1. Drehung [m]
 LEG2_DIST      = 1.5   # Vorwärtsstrecke nach 2. Drehung [m]
 FWD_SPEED      = 0.25   # Suchgeschwindigkeit [m/s]
 MOVE_SPEED     = 0.45   # Manövergeschwindigkeit [m/s]
@@ -1325,13 +1325,13 @@ const RINGS = [];
 // Tische als Hindernisse fuer racing.py: der Front-Sensor erkennt sie, die Drohne fliegt drunter durch.
 // x = vorne, y = links (Mitte), w = Breite (x), d = Tiefe (y), h = Plattenhoehe, clearance = Unterkante.
 const TABLES = [
-  { x:1.30, y:0.00, w:0.80, d:1.60, h:0.70, clearance:0.50 },   // Hindernis 1: nach ~60 cm erkannt
-  { x:4.10, y:0.00, w:0.80, d:1.60, h:0.70, clearance:0.50 },   // Hindernis 2: nach ~1,50 m erkannt
+  { x:1.30, y:0.00, w:0.80, d:1.60, h:0.75, clearance:0.70 },   // Hindernis 1: nach ~60 cm erkannt
+  { x:4.10, y:0.00, w:0.80, d:1.60, h:0.75, clearance:0.70 },   // Hindernis 2: nach ~1,50 m erkannt
 ];
 
 // Indoor-Raum (Waende + Decke) – der Multiranger erkennt die Waende.
 // Laenge = x (Flugrichtung), Breite = y (mittig), Hoehe = Decke. x0 = hintere Wand hinter dem Start.
-const ROOM = { length:6.0, width:3.0, height:2.5, x0:-0.6 };
+const ROOM = { length:6.70, width:5.80, height:2.70, x0:-0.60 };
 roomCfg = Object.assign({}, ROOM);
 
 // rechnet Raum-Parameter (length/width/height/x0) in Bounds {xmin,xmax,ymin,ymax,h} um
