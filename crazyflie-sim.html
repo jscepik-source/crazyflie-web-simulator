@@ -152,7 +152,7 @@ CACHE_DIR = os.path.join(os.path.dirname(__file__), 'cache')
 
 # ── Schwellwerte &amp; Flugparameter ───────────────────────────────────────────────
 OBSTACLE_MM    = 500    # Hindernis erkannt wenn Front &lt; 600 mm (früh stoppen!)
-START_HEIGHT   = 0.72   # Starthöhe [m]
+START_HEIGHT   = 0.65   # Starthöhe [m] (unter die 0.70-m-Tische, damit der Front-Sensor sie sieht)
 DOWN_STEP      = 0.35   # Abstieg vor dem Unterflug [m]
 UP_STEP        = 0.50   # Aufstieg nach dem Unterflug [m]
 UNDER_DIST     = 1.30   # Strecke unter dem Hindernis [m]
@@ -1325,8 +1325,8 @@ const RINGS = [];
 // Tische als Hindernisse fuer racing.py: der Front-Sensor erkennt sie, die Drohne fliegt drunter durch.
 // x = vorne, y = links (Mitte), w = Breite (x), d = Tiefe (y), h = Plattenhoehe, clearance = Unterkante.
 const TABLES = [
-  { x:1.3, y:0.0, w:0.4, d:0.8, h:1.05, clearance:0.50 },   // Hindernis 1: nach ~60 cm erkannt
-  { x:4.1, y:0.0, w:0.4, d:0.8, h:1.05, clearance:0.50 },   // Hindernis 2: nach ~1,50 m erkannt
+  { x:1.30, y:0.00, w:0.80, d:1.60, h:0.70, clearance:0.50 },   // Hindernis 1: nach ~60 cm erkannt
+  { x:4.10, y:0.00, w:0.80, d:1.60, h:0.70, clearance:0.50 },   // Hindernis 2: nach ~1,50 m erkannt
 ];
 
 // Indoor-Raum (Waende + Decke) – der Multiranger erkennt die Waende.
@@ -2122,9 +2122,9 @@ async function startRace(){
   for(const l of sensorLines) l.visible = false;
 
   const specs = [
-    { name:'Drohne 1', color:0x22b8d6, lane:-0.30 },
+    { name:'Drohne 1', color:0x22b8d6, lane:-0.25 },
     { name:'Drohne 2', color:0xe0489a, lane: 0.00 },
-    { name:'Drohne 3', color:0xe0a000, lane: 0.30 },
+    { name:'Drohne 3', color:0xe0a000, lane: 0.25 },
   ];
   raceRacers = specs.map(s => {
     const mesh = buildRacer(s.color); scene.add(mesh);
